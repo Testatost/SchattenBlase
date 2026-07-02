@@ -1,4 +1,7 @@
-# SchattenBlase
+<p align="center">
+  <img src="logo%20small.png" alt="SchattenBlase Logo">
+</p>
+
 
 SchattenBlase ist eine lokale Desktop-Anwendung zur 2D- und 3D-Schattensimulation auf Basis von Karten- und Geometriedaten. Das Programm richtet sich an frühe Planungs-, Analyse- und Visualisierungsaufgaben, bei denen Gebäude, einfache Körper, Vegetation und Grundflächen im Zusammenhang mit Sonnenstand und Schattenwurf untersucht werden sollen.
 
@@ -30,12 +33,6 @@ Laufzeitabhängigkeiten:
 ```text
 PySide6>=6.7
 shapely>=2.0
-```
-
-Für den Build einer ausführbaren Datei wird zusätzlich PyInstaller benötigt:
-
-```bash
-pip install pyinstaller
 ```
 
 ## Installation aus dem Quellcode
@@ -100,26 +97,7 @@ pip install -r requirements.txt
 pip install pyinstaller
 ```
 
-Build aus dem Projektverzeichnis:
-
-```bash
-pyinstaller --clean --noconfirm SchattenBlase.spec
-```
-
 Das Ergebnis liegt danach in `dist/`. Wenn eine Datei `assets/icon.ico` vorhanden ist, wird sie automatisch als Programmsymbol verwendet. Ohne diese Datei wird das Programm ohne eigenes Icon gebaut.
-
-## Repository-Struktur
-
-```text
-main.py                    Einstiegspunkt der Anwendung
-config.py                  zentrale Pfade, Standardwerte und Dienst-URLs
-core/                      Geometrie, Simulation, Speicher- und Projektdaten
-osm/                       Karten-, Geocode-, Offline- und Gebäudeimporte
-ui/                        PySide6-Oberfläche, Karte, 3D-Ansicht und Panels
-lang/                      Sprachdateien
-requirements.txt           Laufzeitabhängigkeiten
-SchattenBlase.spec         PyInstaller-Buildkonfiguration
-```
 
 ## Hinweise zur Genauigkeit
 
@@ -127,4 +105,4 @@ Gebäudehöhen werden nur so genau übernommen, wie sie in den importierten Date
 
 ## Lizenz
 
-Für dieses Repository ist noch keine Lizenzdatei enthalten. Vor einer öffentlichen Veröffentlichung sollte eine passende Lizenz ergänzt werden.
+MIT-Lizenz
