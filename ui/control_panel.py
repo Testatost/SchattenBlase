@@ -159,6 +159,7 @@ class ControlPanel(QWidget):
             ("objects", [key for key, kind in TREE_KINDS.items() if kind.category == "geometry"]),
             ("broadleaf", [key for key in TREE_KINDS if key.startswith("broadleaf")]),
             ("conifer", [key for key in TREE_KINDS if key.startswith("conifer")]),
+            ("plants", [key for key in TREE_KINDS if key.startswith(("shrub", "potted"))]),
         ]
         for group, keys in kind_groups:
             for key in keys:
@@ -185,8 +186,10 @@ class ControlPanel(QWidget):
         self.crown_width_spin = self._spin(0.1, 160.0, 0.1)
         self.crown_height_spin = self._spin(0.0, 150.0, 0.1)
         self.tilt_spin = self._spin(-80.0, 80.0, 1.0)
+        self.crown_tilt_spin = self._spin(-80.0, 80.0, 1.0)
         self.orientation_spin = self._spin(0.0, 359.0, 1.0)
         self.tilt_slider = QSlider(Qt.Orientation.Horizontal); self.tilt_slider.setRange(-80, 80)
+        self.crown_tilt_slider = QSlider(Qt.Orientation.Horizontal); self.crown_tilt_slider.setRange(-80, 80)
         self.orientation_slider = QSlider(Qt.Orientation.Horizontal); self.orientation_slider.setRange(0, 359)
         self.shadow_density_spin = QSpinBox()
         self.shadow_density_spin.setRange(5, 100)
@@ -204,6 +207,7 @@ class ControlPanel(QWidget):
         self.crown_width_label = QLabel()
         self.crown_height_label = QLabel()
         self.tilt_label = QLabel()
+        self.crown_tilt_label = QLabel()
         self.orientation_label = QLabel()
         for label, widget in [
             (None, self.add_button),
@@ -222,6 +226,7 @@ class ControlPanel(QWidget):
             (self.crown_width_label, self.crown_width_spin),
             (self.crown_height_label, self.crown_height_spin),
             (self.tilt_label, self.tilt_spin), (None, self.tilt_slider),
+            (self.crown_tilt_label, self.crown_tilt_spin), (None, self.crown_tilt_slider),
             (self.orientation_label, self.orientation_spin), (None, self.orientation_slider),
             (self.shadow_density_label, self.shadow_density_spin), (None, self.shadow_density_slider),
         ]:
@@ -521,6 +526,7 @@ class ControlPanel(QWidget):
             (self.crown_width_label, "object.crown_width"),
             (self.crown_height_label, "object.crown_height"),
             (self.tilt_label, "object.tilt"),
+            (self.crown_tilt_label, "object.crown_tilt"),
             (self.orientation_label, "object.orientation"),
             (self.shadow_density_label, "object.shadow_density"),
         ]
@@ -533,6 +539,7 @@ class ControlPanel(QWidget):
         self.kind_combo.set_group_label("objects", self.i18n.t("group.objects"))
         self.kind_combo.set_group_label("broadleaf", self.i18n.t("picker.broadleaf"))
         self.kind_combo.set_group_label("conifer", self.i18n.t("picker.conifer"))
+        self.kind_combo.set_group_label("plants", self.i18n.t("picker.plants"))
         self.object_library_group.setTitle(self.i18n.t("library.objects"))
         self.object_name_label.setText(self.i18n.t("library.name"))
         self.object_load_label.setText(self.i18n.t("library.saved"))

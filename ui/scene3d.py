@@ -12,9 +12,13 @@ from core.mesh_edit import apply_handle_drag, edit_handles_local
 from core.simulation import (
     object_body_layers_local_m,
     object_footprint_local_m,
+    objects_shadow_signature,
     shadow_union_polygons_by_density_world,
+    tilt_transform_point,
     tree_crown_bottom_z,
     tree_crown_layers_local_m,
+    tree_crown_visible_bottom_z,
+    willow_strand_polylines_local_m,
 )
 from i18n import I18n
 from ui.scene3d_tools import draw_dimensions, copy_selected, paste_copied, hit_projected_object, grid_bounds_from_bbox
@@ -65,6 +69,7 @@ class Scene3DCanvas(QWidget):
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumSize(500, 350)
         self.setMouseTracking(True)
+        self._refresh_view_cache()
     def set_language(self, i18n: I18n) -> None:
         self.i18n = i18n
         self.reset_button.setText(self.i18n.t("view.reset"))
@@ -126,6 +131,7 @@ class Scene3DCanvas(QWidget):
         self.invalidate_shadow_cache()
         self.update()
     def paintEvent(self, event) -> None:
+        self._refresh_view_cache()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.fillRect(self.rect(), QColor(238, 240, 242))
@@ -226,18 +232,34 @@ class Scene3DCanvas(QWidget):
         return self.origin_latlon
     def _base_point(self) -> QPointF:
         return QPointF(self.width() * 0.5, self.height() * 0.68)
+    def _refresh_view_cache(self) -> None:
+        # Kamera-Matrix und Bildschirm-Offset einmal pro Frame berechnen —
+        # _rotate3/_project laufen danach ohne Winkelfunktionen und ohne
+        # Qt-Aufrufe. Das ist die heißeste Stelle bei vielen Objekten.
+        rz, rx, ry = radians(self.rot_z), radians(self.rot_x), radians(self.rot_y)
+        cz, sz = cos(rz), sin(rz)
+        cxr, sxr = cos(rx), sin(rx)
+        cyr, syr = cos(ry), sin(ry)
+        self._view_m = (
+            cyr * cz + syr * sxr * sz, cyr * sz - syr * sxr * cz, syr * cxr,
+            cxr * sz, -cxr * cz, -sxr,
+            -syr * cz + cyr * sxr * sz, -syr * sz - cyr * sxr * cz, cyr * cxr,
+        )
+        self._base_x = self.width() * 0.5 + self.pan.x()
+        self._base_y = self.height() * 0.68 + self.pan.y()
     def _rotate3(self, x: float, y: float, z: float) -> tuple[float, float, float]:
-        y = -y
-        rz = radians(self.rot_z)
-        rx = radians(self.rot_x)
-        ry = radians(self.rot_y)
-        x, y = x * cos(rz) - y * sin(rz), x * sin(rz) + y * cos(rz)
-        y, z = y * cos(rx) - z * sin(rx), y * sin(rx) + z * cos(rx)
-        x, z = x * cos(ry) + z * sin(ry), -x * sin(ry) + z * cos(ry)
-        return x, y, z
+        m = self._view_m
+        return (
+            m[0] * x + m[1] * y + m[2] * z,
+            m[3] * x + m[4] * y + m[5] * z,
+            m[6] * x + m[7] * y + m[8] * z,
+        )
     def _project(self, x: float, y: float, z: float = 0.0) -> QPointF:
-        rx, ry, _ = self._rotate3(x, y, z)
-        return self._base_point() + QPointF(rx * self.zoom, ry * self.zoom) + self.pan
+        m = self._view_m
+        return QPointF(
+            self._base_x + (m[0] * x + m[1] * y + m[2] * z) * self.zoom,
+            self._base_y + (m[3] * x + m[4] * y + m[5] * z) * self.zoom,
+        )
     def _poly(self, points: list[tuple[float, float]], z: float = 0.0) -> QPolygonF:
         return QPolygonF([self._project(x, y, z) for x, y in points])
     def _visible_ground_bounds(self) -> tuple[float, float, float, float]:
@@ -322,9 +344,7 @@ class Scene3DCanvas(QWidget):
             round(origin[1], 7),
             round(self.state.sun_azimuth_deg, 3),
             round(self.state.sun_altitude_deg, 3),
-            len(self.state.objects),
-            tuple(o.object_id for o in self.state.objects),
-            tuple(round(getattr(o, "shadow_density", 1.0), 2) for o in self.state.objects),
+            objects_shadow_signature(self.state.objects),
         )
         if key != self._shadow_cache_key:
             self._shadow_cache_key = key
@@ -372,6 +392,22 @@ class Scene3DCanvas(QWidget):
             if (total_count <= MAX_3D_LABEL_OBJECTS or selected) and self.state.label_visible_for(obj.object_id) and obj.name:
                 self._draw_text(painter, obj.name, cx, cy, obj.height_m + 0.5)
         self._fast_object_render = False
+    @staticmethod
+    def _has_tilt(obj) -> bool:
+        return abs(obj.tilt_deg) + abs(obj.rotation_x_deg) + abs(getattr(obj, "crown_tilt_deg", 0.0)) > 1e-9
+    def _detail_ring_step(self, selected: bool) -> int:
+        # Staffelung der Zeichendetails nach Objektzahl: Ausgewählte Objekte
+        # und kleine Szenen bleiben in voller Qualität.
+        if selected:
+            return 1
+        total = len(self.state.objects)
+        if total > 150:
+            return 4
+        if total > 60:
+            return 3
+        if total > 25:
+            return 2
+        return 1
     def _fill_screen_hull(self, painter: QPainter, pts: list[QPointF], color: QColor) -> None:
         if len(pts) < 3:
             return
@@ -387,12 +423,14 @@ class Scene3DCanvas(QWidget):
         ry = max(obj.depth_m or obj.width_m, 0.2) * 0.5
         rz = max(obj.height_m, 0.1) * 0.5
         center_z = rz
+        ring_step = self._detail_ring_step(selected)
+        j_step = 2 if ring_step > 1 else 1
         samples: list[tuple[float, float, float]] = []
-        for j in range(0, 19):
+        for j in range(0, 19, j_step):
             phi = -pi * 0.5 + pi * j / 18.0
             cp = cos(phi)
             z = center_z + rz * sin(phi)
-            for i in range(72):
+            for i in range(0, 72, ring_step):
                 a = 2.0 * pi * i / 72.0
                 x = cx + rx * cp * cos(a)
                 y = cy + ry * cp * sin(a)
@@ -410,6 +448,8 @@ class Scene3DCanvas(QWidget):
 
         # Dezente sichtbare Breiten-/Höhenringe, damit die Kugel als Volumen
         # erkennbar bleibt, aber keine transparenten Rückseiten simuliert werden.
+        if ring_step > 1:
+            return
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.setPen(QPen(QColor(30, 70, 30, 150), 1))
         for t in (0.25, 0.50, 0.75):
@@ -437,38 +477,44 @@ class Scene3DCanvas(QWidget):
 
 
     def _draw_layered_body(self, painter: QPainter, obj, cx: float, cy: float) -> None:
-        layers = [[self._tilted_point(obj, x + cx, y + cy, z, cx, cy) for x, y in pts] for z, pts in object_body_layers_local_m(obj)]
         base_color = painter.brush().color()
         selected = bool(obj and (obj.object_id == self.state.selected_object_id or obj.object_id in getattr(self.state, "selected_object_ids", [])))
+        ring_step = self._detail_ring_step(selected)
+        has_tilt = self._has_tilt(obj)
+        layers = [
+            [
+                self._tilted_point(obj, x + cx, y + cy, z, cx, cy) if has_tilt else (x + cx, y + cy, z)
+                for x, y in (pts[::ring_step] if ring_step > 1 and len(pts) > 24 else pts)
+            ]
+            for z, pts in object_body_layers_local_m(obj)
+        ]
+        # Punkte einmal rotieren: Bildschirmkoordinaten und Tiefe fallen aus
+        # derselben Matrixmultiplikation ab.
+        zoom, bx, by = self.zoom, self._base_x, self._base_y
+        proj = [
+            [(QPointF(bx + px * zoom, by + py * zoom), pz) for px, py, pz in (self._rotate3(x, y, z) for x, y, z in layer)]
+            for layer in layers
+        ]
         if self._fast_object_render and not selected:
-            projected = [self._project(x, y, z) for layer in layers for x, y, z in layer]
-            self._fill_screen_hull(painter, projected, base_color)
+            self._fill_screen_hull(painter, [pt for row in proj for pt, _ in row], base_color)
             return
         faces = []
-        for pts1, pts2 in zip(layers, layers[1:]):
-            count = min(len(pts1), len(pts2))
+        for row1, row2 in zip(proj, proj[1:]):
+            count = min(len(row1), len(row2))
             for i in range(count):
-                pts4 = [pts1[i], pts1[(i + 1) % count], pts2[(i + 1) % count], pts2[i]]
-                depth = sum(self._rotate3(x, y, z)[2] for x, y, z in pts4) / 4.0
-                faces.append((depth, QPolygonF([self._project(x, y, z) for x, y, z in pts4])))
+                j = (i + 1) % count
+                (a, da), (b, db), (c, dc), (d, dd) = row1[i], row1[j], row2[j], row2[i]
+                faces.append(((da + db + dc + dd) * 0.25, QPolygonF([a, b, c, d])))
         for _depth, face in sorted(faces, key=lambda f: f[0]):
             painter.setBrush(QColor(base_color).darker(108)); painter.drawPolygon(face)
-        if layers and len(layers[-1]) >= 3:
-            painter.setBrush(base_color); painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y, z in layers[-1]]))
-    def _tilted_point(self, obj, x: float, y: float, z: float, cx: float = 0.0, cy: float = 0.0) -> tuple[float, float, float]:
-        # Echte Starrkörper-Rotation um die Basis (cx, cy, 0) statt Scherung:
-        # Das Objekt behält seine Maße und Fläche, nur der Winkel ändert sich.
-        tilt = radians(obj.tilt_deg)
-        if abs(tilt) < 1e-9:
-            return x, y, z
-        angle = radians(obj.orientation_deg + obj.rotation_z_deg)
-        dir_x, dir_y = sin(angle), cos(angle)
-        lx, ly = x - cx, y - cy
-        along = lx * dir_x + ly * dir_y
-        perp_x, perp_y = lx - along * dir_x, ly - along * dir_y
-        along_rot = along * cos(tilt) + z * sin(tilt)
-        z_rot = z * cos(tilt) - along * sin(tilt)
-        return cx + perp_x + along_rot * dir_x, cy + perp_y + along_rot * dir_y, z_rot
+        if proj and len(proj[-1]) >= 3:
+            painter.setBrush(base_color); painter.drawPolygon(QPolygonF([pt for pt, _ in proj[-1]]))
+    def _tilted_point(self, obj, x: float, y: float, z: float, cx: float = 0.0, cy: float = 0.0, crown: bool = False) -> tuple[float, float, float]:
+        # Gemeinsame Neigungs-Transformation mit dem Schattenmodell
+        # (core.simulation.tilt_transform_point): echte Starrkörper-Rotation
+        # um die Basis, optional mit separater Kronen-Neigung.
+        tx, ty, tz = tilt_transform_point(obj, x - cx, y - cy, z, crown)
+        return tx + cx, ty + cy, tz
     def _draw_prism(self, painter: QPainter, footprint: list[tuple[float, float]], height: float, obj=None) -> None:
         pivot_x = pivot_y = 0.0
         if obj is not None and footprint:
@@ -508,57 +554,60 @@ class Scene3DCanvas(QWidget):
         kind = TREE_KINDS.get(obj.kind_key, TREE_KINDS["custom"])
         crown_bottom = tree_crown_bottom_z(obj)
         crown_height = obj.height_m - crown_bottom
-        if trunk > 0.02 and crown_bottom > 0.05:
+        visible_bottom = tree_crown_visible_bottom_z(obj)
+        if trunk > 0.02 and visible_bottom > 0.05:
             painter.setPen(QPen(QColor(80, 55, 35), 1))
             painter.setBrush(QColor(95, 67, 40))
             radius = trunk * 0.5
             circle = [(cx + cos(2 * pi * i / 20) * radius, cy + sin(2 * pi * i / 20) * radius) for i in range(20)]
-            # Stamm etwas in die Krone hineinziehen, damit an der
-            # Verbindungsstelle keine Lücke sichtbar wird.
-            self._draw_prism(painter, circle, min(obj.height_m, crown_bottom + max(0.3, crown_height * 0.08)), obj)
+            # Stamm bis zum sichtbaren Kronenvolumen und etwas hinein, damit
+            # an der Verbindungsstelle keine Lücke sichtbar wird — bei der
+            # Trauerform also durch den Astvorhang bis zum Kronendach.
+            self._draw_prism(painter, circle, min(obj.height_m, visible_bottom + max(0.3, crown_height * 0.08)), obj)
         painter.setPen(QPen(QColor(20, 70, 20), 1))
         painter.setBrush(QColor(color))
         crown_layers = tree_crown_layers_local_m(obj)
-        if kind.crown_shape == "broadleaf_5":
-            # Trauerform: nur das obere Kronendach als Volumen zeichnen,
-            # darunter hängen einzelne lange Äste (siehe unten).
-            cut = crown_bottom + crown_height * 0.45
-            crown_layers = [(z, pts) for z, pts in crown_layers if z >= cut] or crown_layers[-2:]
-        layers = [[self._tilted_point(obj, x + cx, y + cy, z, cx, cy) for x, y in pts] for z, pts in crown_layers]
+        ring_step = self._detail_ring_step(selected)
+        if ring_step > 1:
+            # Detailreduktion bei vielen Objekten: weniger Schichten und
+            # weniger Punkte pro Ring — die Silhouette bleibt erhalten, die
+            # Zahl der gezeichneten Flächen sinkt um eine Größenordnung.
+            if len(crown_layers) > 6:
+                thinned = crown_layers[::2]
+                if thinned[-1] is not crown_layers[-1]:
+                    thinned.append(crown_layers[-1])
+                crown_layers = thinned
+            crown_layers = [(z, pts[::ring_step] if len(pts) > 24 else pts) for z, pts in crown_layers]
+        # Jeden Punkt nur einmal transformieren und projizieren; die Facetten
+        # teilen sich danach die fertigen Bildschirmpunkte. Ohne Neigung
+        # entfällt die Transformationskette komplett.
+        if self._has_tilt(obj):
+            layers = [
+                [self._project(*self._tilted_point(obj, x + cx, y + cy, z, cx, cy, crown=True)) for x, y in pts]
+                for z, pts in crown_layers
+            ]
+        else:
+            layers = [[self._project(x + cx, y + cy, z) for x, y in pts] for z, pts in crown_layers]
         for pts1, pts2 in zip(layers, layers[1:]):
             count = min(len(pts1), len(pts2))
             for i in range(count):
-                a = self._project(*pts1[i])
-                b = self._project(*pts1[(i + 1) % count])
-                c = self._project(*pts2[(i + 1) % count])
-                d = self._project(*pts2[i])
-                painter.drawPolygon(QPolygonF([a, b, c, d]))
+                j = (i + 1) % count
+                painter.drawPolygon(QPolygonF([pts1[i], pts1[j], pts2[j], pts2[i]]))
         if layers:
-            painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y, z in layers[-1]]))
-        if kind.crown_shape == "broadleaf_5" and crown_layers:
-            # Einzelne lange, herabhängende Äste rund um den Kronenrand.
-            rim_z, rim_pts = crown_layers[0]
-            rim_radius = max((x * x + y * y) ** 0.5 for x, y in rim_pts) if rim_pts else obj.width_m * 0.45
-            end_z = max(0.25, crown_bottom * 0.3)
+            painter.drawPolygon(QPolygonF(layers[-1]))
+        if kind.crown_shape == "broadleaf_5" and not self._fast_object_render:
+            # Einzelne lange, herabhängende Äste — gleiche Geometrie wie im
+            # Schattenmodell (willow_strand_polylines_local_m).
             painter.setPen(QPen(QColor(color).darker(130), 2))
-            strand_count = 14
-            for i in range(strand_count):
-                a = 2.0 * pi * i / strand_count + 0.22
-                pts = []
-                for f in (0.0, 0.3, 0.65, 1.0):
-                    # leicht nach außen gebogen, unten wieder etwas einwärts
-                    r = rim_radius * (1.0 + 0.10 * sin(pi * min(f * 1.15, 1.0))) * (1.0 - 0.12 * f)
-                    z = rim_z + (end_z - rim_z) * f
-                    x = cx + r * cos(a)
-                    y = cy + r * sin(a)
-                    pts.append(self._project(*self._tilted_point(obj, x, y, z, cx, cy)))
+            for strand in willow_strand_polylines_local_m(obj):
+                pts = [self._project(*self._tilted_point(obj, x + cx, y + cy, z, cx, cy, crown=True)) for x, y, z in strand]
                 painter.drawPolyline(QPolygonF(pts))
             painter.setPen(QPen(QColor(20, 70, 20), 1))
         if selected and layers:
             painter.setPen(QPen(QColor(255, 255, 255), 3))
             for pts in (layers[0], layers[-1]):
                 if len(pts) >= 3:
-                    painter.drawPolyline(QPolygonF([self._project(x, y, z) for x, y, z in pts + [pts[0]]]))
+                    painter.drawPolyline(QPolygonF(pts + [pts[0]]))
     def _draw_custom_draft(self, painter: QPainter) -> None:
         if len(self.pending_custom) < 2: return
         painter.setPen(QPen(QColor(255,255,255), 2, Qt.PenStyle.DashLine)); painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -724,6 +773,7 @@ class Scene3DCanvas(QWidget):
             self.object_selected.emit()
             self.update()
     def _screen_to_ground(self, pos: QPointF) -> tuple[float, float]:
+        self._refresh_view_cache()
         p0 = self._project(0, 0, 0)
         vx = self._project(1, 0, 0) - p0
         vy = self._project(0, 1, 0) - p0

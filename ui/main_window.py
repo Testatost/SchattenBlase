@@ -185,9 +185,10 @@ class MainWindow(MainWindowActions, QMainWindow):
         self.metrics_panel.row_selected.connect(self.select_metrics_row)
         self.map_search_combo.activated.connect(self.load_preview_search_result)
         self.preview_tabs.currentChanged.connect(self.refresh_3d_map_plane)
-        for spin in [c.height_spin, c.width_spin, c.depth_spin, c.trunk_spin, c.crown_width_spin, c.crown_height_spin, c.tilt_spin, c.orientation_spin]:
+        for spin in [c.height_spin, c.width_spin, c.depth_spin, c.trunk_spin, c.crown_width_spin, c.crown_height_spin, c.tilt_spin, c.crown_tilt_spin, c.orientation_spin]:
             spin.valueChanged.connect(self.update_selected_object)
         c.tilt_slider.valueChanged.connect(lambda v: c.tilt_spin.setValue(v))
+        c.crown_tilt_slider.valueChanged.connect(lambda v: c.crown_tilt_spin.setValue(v))
         c.orientation_slider.valueChanged.connect(lambda v: c.orientation_spin.setValue(v))
         c.kind_combo.currentIndexChanged.connect(self.update_selected_kind)
         self.kind_picker_bar.kind_selected.connect(self.select_kind_from_picker_bar)
@@ -360,6 +361,7 @@ class MainWindow(MainWindowActions, QMainWindow):
             c.crown_width_spin,
             c.crown_height_spin,
             c.tilt_spin, c.tilt_slider,
+            c.crown_tilt_spin, c.crown_tilt_slider,
             c.orientation_spin, c.orientation_slider,
             c.shadow_density_spin, c.shadow_density_slider,
             c.delete_button,
@@ -380,6 +382,8 @@ class MainWindow(MainWindowActions, QMainWindow):
         c.trunk_spin.setEnabled(is_tree)
         c.crown_width_spin.setEnabled(is_tree)
         c.crown_height_spin.setEnabled(is_tree)
+        c.crown_tilt_spin.setEnabled(is_tree)
+        c.crown_tilt_slider.setEnabled(is_tree)
         values = [
             (c.height_spin, obj.height_m),
             (c.width_spin, obj.width_m),
@@ -388,12 +392,13 @@ class MainWindow(MainWindowActions, QMainWindow):
             (c.crown_width_spin, obj.crown_width_m or obj.width_m),
             (c.crown_height_spin, obj.crown_height_m),
             (c.tilt_spin, obj.tilt_deg),
+            (c.crown_tilt_spin, getattr(obj, "crown_tilt_deg", 0.0)),
             (c.orientation_spin, obj.orientation_deg),
         ]
         for spin, value in values:
             with QSignalBlocker(spin):
                 spin.setValue(value)
-        for slider, value in [(c.tilt_slider, obj.tilt_deg), (c.orientation_slider, obj.orientation_deg)]:
+        for slider, value in [(c.tilt_slider, obj.tilt_deg), (c.crown_tilt_slider, getattr(obj, "crown_tilt_deg", 0.0)), (c.orientation_slider, obj.orientation_deg)]:
             with QSignalBlocker(slider):
                 slider.setValue(round(value))
         density_percent = round(max(0.05, min(1.0, getattr(obj, "shadow_density", 1.0))) * 100)
@@ -446,9 +451,11 @@ class MainWindow(MainWindowActions, QMainWindow):
             w = max(obj.width_m, 0.1) * 0.5; d = max(obj.depth_m or obj.width_m, 0.1) * 0.5
             obj.footprint_m = [(-w, -d), (w, -d), (w, d), (-w, d)]
         obj.tilt_deg = c.tilt_spin.value()
+        obj.crown_tilt_deg = c.crown_tilt_spin.value()
         obj.orientation_deg = c.orientation_spin.value()
         obj.shadow_density = c.shadow_density_spin.value() / 100.0
         with QSignalBlocker(c.tilt_slider): c.tilt_slider.setValue(round(obj.tilt_deg))
+        with QSignalBlocker(c.crown_tilt_slider): c.crown_tilt_slider.setValue(round(obj.crown_tilt_deg))
         with QSignalBlocker(c.orientation_slider): c.orientation_slider.setValue(round(obj.orientation_deg))
         with QSignalBlocker(c.shadow_density_slider): c.shadow_density_slider.setValue(c.shadow_density_spin.value())
         self.canvas.redraw_overlays()

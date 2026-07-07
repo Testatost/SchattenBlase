@@ -34,6 +34,10 @@ TREE_KINDS: dict[str, TreeKind] = {
     "conifer_3": TreeKind("conifer_3", "tree.conifer_3", 16.0, 5.0, "#2f6f55", "conifer_3", 13.0, 0.35),
     "conifer_4": TreeKind("conifer_4", "tree.conifer_4", 16.0, 11.0, "#3d7352", "conifer_4", 4.5, 0.55),
     "conifer_5": TreeKind("conifer_5", "tree.conifer_5", 14.0, 2.6, "#2d6b4c", "conifer_5", 12.5, 0.22),
+    "shrub_1": TreeKind("shrub_1", "plant.shrub_1", 2.2, 2.8, "#4e8f3d", "shrub_1", 2.2, 0.0),
+    "shrub_2": TreeKind("shrub_2", "plant.shrub_2", 3.2, 2.2, "#5a9a45", "shrub_2", 3.2, 0.0),
+    "potted_1": TreeKind("potted_1", "plant.potted_1", 1.6, 1.2, "#4c8f45", "potted_1", 1.0, 0.45),
+    "potted_2": TreeKind("potted_2", "plant.potted_2", 2.4, 0.9, "#3f7d46", "potted_2", 1.7, 0.40),
     "sphere": TreeKind("sphere", "geo.sphere", 4.0, 4.0, "#777db4", "sphere", 0.0, 0.0, "geometry"),
     "cube": TreeKind("cube", "geo.cube", 4.0, 4.0, "#9b6f45", "box", 0.0, 0.0, "geometry"),
     "cuboid": TreeKind("cuboid", "geo.cuboid", 4.0, 6.0, "#9b7a55", "box", 0.0, 0.0, "geometry"),
@@ -50,7 +54,7 @@ LEGACY_KIND_MAP: dict[str, str] = {
     "ash": "broadleaf_2", "elm": "broadleaf_2", "red_oak": "broadleaf_2", "hornbeam": "broadleaf_2", "birch": "broadleaf_2", "poplar": "broadleaf_2",
     "acacia": "broadleaf_3", "field_maple": "broadleaf_3", "apple": "broadleaf_3", "cherry": "broadleaf_3", "rowan": "broadleaf_3", "willow": "broadleaf_3",
     "spruce": "conifer_1", "fir": "conifer_2", "larch": "conifer_2", "pine": "conifer_3",
-    "boxwood": "broadleaf_3", "hazel_bush": "broadleaf_3", "rose_bush": "broadleaf_3", "hedge": "broadleaf_3",
+    "boxwood": "shrub_1", "hazel_bush": "shrub_2", "rose_bush": "shrub_1", "hedge": "shrub_2",
 }
 
 
@@ -63,6 +67,7 @@ class ShadowObject:
     width_m: float
     depth_m: float = 0.0
     tilt_deg: float = 0.0
+    crown_tilt_deg: float = 0.0
     orientation_deg: float = 0.0
     footprint_m: list[tuple[float, float]] = field(default_factory=list)
     trunk_diameter_m: float = 0.0
@@ -165,6 +170,7 @@ class ShadowObject:
         values.setdefault("rotation_x_deg", 0.0)
         values.setdefault("rotation_y_deg", 0.0)
         values.setdefault("rotation_z_deg", 0.0)
+        values.setdefault("crown_tilt_deg", 0.0)
         try:
             values["shadow_density"] = min(1.0, max(0.0, float(values.get("shadow_density", 1.0))))
         except (TypeError, ValueError):

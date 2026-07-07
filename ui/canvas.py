@@ -23,6 +23,7 @@ from core.simulation import (
     object_shadow_areas_m2,
     shadow_area_m2,
     shadow_area_raw_m2,
+    objects_shadow_signature,
     shadow_union_polygons_by_density_latlon,
     total_shadow_area_m2,
     total_shadow_on_ground_m2,
@@ -62,6 +63,8 @@ class MapCanvas(QGraphicsView):
         self.pending_custom: list[tuple[float, float]] = []
         self._drag_object_id: str | None = None
         self._drag_handle: tuple[str, str] | None = None
+        self._shadow_cache_key: tuple | None = None
+        self._shadow_cache: list = []
         self._drag_ground_index: int | None = None
         self._right_pan_active = False
         self._right_pan_last = None
@@ -299,7 +302,17 @@ class MapCanvas(QGraphicsView):
         # Objekten übersprungen.
         if len(self.state.objects) > MAX_MAP_SHADOW_OBJECTS:
             return
-        for density, polygons in shadow_union_polygons_by_density_latlon(self.state.objects, self.state.sun_azimuth_deg, self.state.sun_altitude_deg):
+        # Die Schatten-Union (Shapely) ist der teuerste Teil des Kartenzeichnens.
+        # Solange sich Sonne und Objekte nicht ändern, wird das Ergebnis gecacht.
+        key = (
+            round(self.state.sun_azimuth_deg, 3),
+            round(self.state.sun_altitude_deg, 3),
+            objects_shadow_signature(self.state.objects),
+        )
+        if key != self._shadow_cache_key:
+            self._shadow_cache_key = key
+            self._shadow_cache = shadow_union_polygons_by_density_latlon(self.state.objects, self.state.sun_azimuth_deg, self.state.sun_altitude_deg)
+        for density, polygons in self._shadow_cache:
             for polygon in polygons:
                 if len(polygon) < 3:
                     continue
