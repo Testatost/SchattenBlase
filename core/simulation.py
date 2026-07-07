@@ -45,9 +45,15 @@ def _crown_radius(shape: str, angle: float) -> float:
 
 def _tree_layer_radius(shape: str, t: float) -> float:
     if shape == "conifer_1":
-        return max(0.02, (1.0 - t) ** 0.72)
+        # Fichte: schmaler Kegel mit deutlich abgesetzten Aststufen
+        # (Quirlen), die nach oben hin jeweils wieder ausladen.
+        step = (t * 6.0) % 1.0
+        return max(0.02, (1.0 - t) ** 0.72 * (1.0 - 0.18 * step))
     if shape == "conifer_2":
-        return max(0.015, (1.0 - t) ** 0.58)
+        # Tanne: breiter, dichter und sehr gleichmäßiger Kegel mit nur
+        # fein angedeuteten Stufen.
+        step = (t * 10.0) % 1.0
+        return max(0.015, (1.0 - t) ** 0.55 * (1.0 - 0.05 * step))
     if shape == "conifer_3":
         # Kompakte, aber klar nadelbaumartige kegelige Krone.
         return max(0.025, (1.0 - t) ** 0.88) * (0.98 + 0.04 * sin(5.0 * pi * t))
@@ -114,12 +120,17 @@ def tree_crown_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tuple
     kind = TREE_KINDS.get(obj.kind_key, TREE_KINDS["custom"])
     if not obj.is_tree():
         return []
-    crown_height = min(max(obj.crown_height_m or obj.height_m * 0.65, 0.1), obj.height_m)
-    crown_bottom = max(0.0, obj.height_m - crown_height)
+    crown_bottom = tree_crown_bottom_z(obj)
+    crown_height = obj.height_m - crown_bottom
     # Formen mit feinen Details (Kegel, Schirme, Säulen, Trauerform) brauchen
     # eine dichte Schichtung, sonst gehen die charakteristischen Kanten verloren.
-    dense = kind.crown_shape.startswith("conifer") or kind.crown_shape in {"broadleaf_4", "broadleaf_5", "broadleaf_6"}
-    ts = [i / 18.0 for i in range(0, 19)] if dense else [0.05, 0.14, 0.25, 0.38, 0.52, 0.66, 0.80, 0.92, 0.98]
+    # Gestufte Kronen (Fichte/Tanne) noch dichter, damit die Aststufen sichtbar sind.
+    if kind.crown_shape in {"conifer_1", "conifer_2"}:
+        ts = [i / 30.0 for i in range(0, 31)]
+    elif kind.crown_shape.startswith("conifer") or kind.crown_shape in {"broadleaf_4", "broadleaf_5", "broadleaf_6"}:
+        ts = [i / 18.0 for i in range(0, 19)]
+    else:
+        ts = [0.05, 0.14, 0.25, 0.38, 0.52, 0.66, 0.80, 0.92, 0.98]
     layers = []
     for t in ts:
         z = crown_bottom + crown_height * t
@@ -188,13 +199,25 @@ def object_ground_contact_local_m(obj: ShadowObject) -> list[tuple[float, float]
     return object_footprint_local_m(obj)
 
 
+def tree_crown_bottom_z(obj: ShadowObject) -> float:
+    """Z-Höhe, an der die Krone beginnt — Stamm und Krone müssen sich exakt
+    hier treffen, sonst entstehen Lücken (z. B. bei Schirmformen)."""
+    crown_height = min(max(obj.crown_height_m or obj.height_m * 0.65, 0.1), obj.height_m)
+    return max(0.0, obj.height_m - crown_height)
+
+
 def _trunk_layers(obj: ShadowObject) -> list[tuple[float, list[tuple[float, float]]]]:
     if not obj.is_tree() or obj.trunk_diameter_m <= 0.0:
         return []
     radius = max(0.03, obj.trunk_diameter_m * 0.5)
-    top = max(0.2, obj.height_m - max(obj.crown_height_m, obj.height_m * 0.55))
+    top = tree_crown_bottom_z(obj)
+    if top <= 0.05:
+        return []
     pts = tree_layer_points(radius * 2.0, "broad", 0.5, 24)
-    return [(0.0, pts), (top, pts)]
+    # Leicht in die Krone hineinziehen, damit auch bei spitz zulaufenden
+    # Kronenunterseiten keine Lücke bleibt (gleiche Logik wie in der 3D-Ansicht).
+    overlap = max(0.3, (obj.height_m - top) * 0.08)
+    return [(0.0, pts), (min(obj.height_m, top + overlap), pts)]
 
 
 def object_body_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tuple[float, float]]]]:

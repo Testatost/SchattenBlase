@@ -9,7 +9,13 @@ from config import DEFAULT_LAT, DEFAULT_LON
 from core.geometry import convex_hull, latlon_to_local_m, local_m_to_latlon, polygon_centroid
 from core.objects import ShadowObject, SimulationState, TREE_KINDS
 from core.mesh_edit import apply_handle_drag, edit_handles_local
-from core.simulation import object_body_layers_local_m, object_footprint_local_m, shadow_union_polygons_by_density_world
+from core.simulation import (
+    object_body_layers_local_m,
+    object_footprint_local_m,
+    shadow_union_polygons_by_density_world,
+    tree_crown_bottom_z,
+    tree_crown_layers_local_m,
+)
 from i18n import I18n
 from ui.scene3d_tools import draw_dimensions, copy_selected, paste_copied, hit_projected_object, grid_bounds_from_bbox
 from ui.scene3d_gizmo import draw_gizmo
@@ -499,16 +505,26 @@ class Scene3DCanvas(QWidget):
             painter.setBrush(side_color); painter.drawPolygon(face)
     def _draw_tree(self, painter: QPainter, obj, cx: float, cy: float, color: QColor, selected: bool = False) -> None:
         trunk = max(0.0, obj.trunk_diameter_m)
-        crown_bottom = max(0.0, obj.height_m - max(obj.crown_height_m, obj.height_m * 0.55))
+        kind = TREE_KINDS.get(obj.kind_key, TREE_KINDS["custom"])
+        crown_bottom = tree_crown_bottom_z(obj)
+        crown_height = obj.height_m - crown_bottom
         if trunk > 0.02 and crown_bottom > 0.05:
             painter.setPen(QPen(QColor(80, 55, 35), 1))
             painter.setBrush(QColor(95, 67, 40))
             radius = trunk * 0.5
             circle = [(cx + cos(2 * pi * i / 20) * radius, cy + sin(2 * pi * i / 20) * radius) for i in range(20)]
-            self._draw_prism(painter, circle, crown_bottom, obj)
+            # Stamm etwas in die Krone hineinziehen, damit an der
+            # Verbindungsstelle keine Lücke sichtbar wird.
+            self._draw_prism(painter, circle, min(obj.height_m, crown_bottom + max(0.3, crown_height * 0.08)), obj)
         painter.setPen(QPen(QColor(20, 70, 20), 1))
         painter.setBrush(QColor(color))
-        layers = [[self._tilted_point(obj, x + cx, y + cy, z, cx, cy) for x, y in pts] for z, pts in object_body_layers_local_m(obj) if z >= crown_bottom]
+        crown_layers = tree_crown_layers_local_m(obj)
+        if kind.crown_shape == "broadleaf_5":
+            # Trauerform: nur das obere Kronendach als Volumen zeichnen,
+            # darunter hängen einzelne lange Äste (siehe unten).
+            cut = crown_bottom + crown_height * 0.45
+            crown_layers = [(z, pts) for z, pts in crown_layers if z >= cut] or crown_layers[-2:]
+        layers = [[self._tilted_point(obj, x + cx, y + cy, z, cx, cy) for x, y in pts] for z, pts in crown_layers]
         for pts1, pts2 in zip(layers, layers[1:]):
             count = min(len(pts1), len(pts2))
             for i in range(count):
@@ -519,6 +535,25 @@ class Scene3DCanvas(QWidget):
                 painter.drawPolygon(QPolygonF([a, b, c, d]))
         if layers:
             painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y, z in layers[-1]]))
+        if kind.crown_shape == "broadleaf_5" and crown_layers:
+            # Einzelne lange, herabhängende Äste rund um den Kronenrand.
+            rim_z, rim_pts = crown_layers[0]
+            rim_radius = max((x * x + y * y) ** 0.5 for x, y in rim_pts) if rim_pts else obj.width_m * 0.45
+            end_z = max(0.25, crown_bottom * 0.3)
+            painter.setPen(QPen(QColor(color).darker(130), 2))
+            strand_count = 14
+            for i in range(strand_count):
+                a = 2.0 * pi * i / strand_count + 0.22
+                pts = []
+                for f in (0.0, 0.3, 0.65, 1.0):
+                    # leicht nach außen gebogen, unten wieder etwas einwärts
+                    r = rim_radius * (1.0 + 0.10 * sin(pi * min(f * 1.15, 1.0))) * (1.0 - 0.12 * f)
+                    z = rim_z + (end_z - rim_z) * f
+                    x = cx + r * cos(a)
+                    y = cy + r * sin(a)
+                    pts.append(self._project(*self._tilted_point(obj, x, y, z, cx, cy)))
+                painter.drawPolyline(QPolygonF(pts))
+            painter.setPen(QPen(QColor(20, 70, 20), 1))
         if selected and layers:
             painter.setPen(QPen(QColor(255, 255, 255), 3))
             for pts in (layers[0], layers[-1]):
@@ -563,8 +598,7 @@ class Scene3DCanvas(QWidget):
             return []
         cx, cy = latlon_to_local_m(obj.lat, obj.lon, origin[0], origin[1])
         if obj.is_tree():
-            crown_h = min(max(obj.crown_height_m or obj.height_m * 0.55, 0.1), obj.height_m)
-            crown_bottom = max(0.0, obj.height_m - crown_h)
+            crown_bottom = tree_crown_bottom_z(obj)
             handles = [(role, x + cx, y + cy, z) for role, x, y, z in edit_handles_local(obj)]
             ca, sa = cos(radians(obj.orientation_deg + obj.rotation_z_deg)), sin(radians(obj.orientation_deg + obj.rotation_z_deg))
             def rp(px, py): return cx + px * ca - py * sa, cy + px * sa + py * ca
