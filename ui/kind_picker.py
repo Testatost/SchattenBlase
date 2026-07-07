@@ -20,6 +20,31 @@ def render_kind_icon(kind: TreeKind, size: int = 28) -> QIcon:
     width = size - 2 * margin
     shape = kind.crown_shape
 
+    if kind.category == "tree" and shape.startswith("shrub"):
+        # Strauch: buschige Kontur direkt am Boden, ohne Stamm.
+        painter.drawEllipse(QRectF(margin, size * 0.32, width, size - margin - size * 0.32))
+        painter.drawEllipse(QRectF(margin * 1.6, size * 0.22, width * 0.55, size * 0.35))
+        painter.end()
+        return QIcon(pixmap)
+    if kind.category == "tree" and shape.startswith("potted"):
+        # Topfpflanze: Terrakotta-Topf mit Pflanzenkörper darüber.
+        pot_top = size * 0.62
+        painter.setPen(QPen(QColor("#7d4a2b"), max(1.0, size * 0.04)))
+        painter.setBrush(QColor("#b0653a"))
+        painter.drawPolygon(QPolygonF([
+            QPointF(size * 0.30, pot_top),
+            QPointF(size * 0.70, pot_top),
+            QPointF(size * 0.62, size - margin),
+            QPointF(size * 0.38, size - margin),
+        ]))
+        painter.setPen(QPen(color.darker(150), max(1.0, size * 0.04)))
+        painter.setBrush(color)
+        if shape == "potted_2":
+            painter.drawEllipse(QRectF(size * 0.36, margin * 0.6, size * 0.28, pot_top - margin * 0.3))
+        else:
+            painter.drawEllipse(QRectF(size * 0.24, margin * 0.6, size * 0.52, pot_top - margin * 0.3))
+        painter.end()
+        return QIcon(pixmap)
     if kind.category == "tree":
         # Schirmformen brauchen einen langen sichtbaren Stamm.
         trunk_w = size * 0.12
@@ -184,6 +209,7 @@ class KindPickerBar(QWidget):
         ("geometry", "picker.geometry", "cube"),
         ("broadleaf", "picker.broadleaf", "broadleaf_1"),
         ("conifer", "picker.conifer", "conifer_1"),
+        ("plants", "picker.plants", "shrub_1"),
     ]
 
     def __init__(self, parent=None) -> None:
@@ -218,6 +244,8 @@ class KindPickerBar(QWidget):
     def _in_group(key: str, kind: TreeKind, group: str) -> bool:
         if group == "geometry":
             return kind.category == "geometry"
+        if group == "plants":
+            return key.startswith(("shrub", "potted"))
         return key.startswith(group)
 
     def _on_pick(self, group: str, key: str) -> None:
