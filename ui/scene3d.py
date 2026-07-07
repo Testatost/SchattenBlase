@@ -390,8 +390,7 @@ class Scene3DCanvas(QWidget):
                 a = 2.0 * pi * i / 72.0
                 x = cx + rx * cp * cos(a)
                 y = cy + ry * cp * sin(a)
-                tx, ty = self._tilted_point(obj, x, y, z)
-                samples.append((tx, ty, z))
+                samples.append(self._tilted_point(obj, x, y, z, cx, cy))
         projected = [self._project(x, y, z) for x, y, z in samples]
         if len(projected) < 3:
             return
@@ -416,8 +415,8 @@ class Scene3DCanvas(QWidget):
                 a = 2.0 * pi * i / 72.0
                 x = cx + rx * cp * cos(a)
                 y = cy + ry * cp * sin(a)
-                tx, ty = self._tilted_point(obj, x, y, z)
-                pts.append(self._project(tx, ty, z))
+                tx, ty, tz = self._tilted_point(obj, x, y, z, cx, cy)
+                pts.append(self._project(tx, ty, tz))
             painter.drawPolyline(QPolygonF(pts))
         for angle in (0.0, pi * 0.5):
             pts = []
@@ -426,49 +425,60 @@ class Scene3DCanvas(QWidget):
                 x = cx + rx * cos(phi) * cos(angle)
                 y = cy + ry * cos(phi) * sin(angle)
                 z = center_z + rz * sin(phi)
-                tx, ty = self._tilted_point(obj, x, y, z)
-                pts.append(self._project(tx, ty, z))
+                tx, ty, tz = self._tilted_point(obj, x, y, z, cx, cy)
+                pts.append(self._project(tx, ty, tz))
             painter.drawPolyline(QPolygonF(pts))
 
 
     def _draw_layered_body(self, painter: QPainter, obj, cx: float, cy: float) -> None:
-        layers = [(z, [self._tilted_point(obj, x + cx, y + cy, z) for x, y in pts]) for z, pts in object_body_layers_local_m(obj)]
+        layers = [[self._tilted_point(obj, x + cx, y + cy, z, cx, cy) for x, y in pts] for z, pts in object_body_layers_local_m(obj)]
         base_color = painter.brush().color()
         selected = bool(obj and (obj.object_id == self.state.selected_object_id or obj.object_id in getattr(self.state, "selected_object_ids", [])))
         if self._fast_object_render and not selected:
-            hull = convex_hull([(p.x(), p.y()) for p in (bottom + top)])
-            if len(hull) >= 3:
-                painter.setBrush(base_color)
-                painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in hull]))
+            projected = [self._project(x, y, z) for layer in layers for x, y, z in layer]
+            self._fill_screen_hull(painter, projected, base_color)
             return
         faces = []
-        for (z1, pts1), (z2, pts2) in zip(layers, layers[1:]):
+        for pts1, pts2 in zip(layers, layers[1:]):
             count = min(len(pts1), len(pts2))
             for i in range(count):
-                pts4 = [(pts1[i][0], pts1[i][1], z1), (pts1[(i + 1) % count][0], pts1[(i + 1) % count][1], z1), (pts2[(i + 1) % count][0], pts2[(i + 1) % count][1], z2), (pts2[i][0], pts2[i][1], z2)]
+                pts4 = [pts1[i], pts1[(i + 1) % count], pts2[(i + 1) % count], pts2[i]]
                 depth = sum(self._rotate3(x, y, z)[2] for x, y, z in pts4) / 4.0
                 faces.append((depth, QPolygonF([self._project(x, y, z) for x, y, z in pts4])))
         for _depth, face in sorted(faces, key=lambda f: f[0]):
             painter.setBrush(QColor(base_color).darker(108)); painter.drawPolygon(face)
-        if layers and len(layers[-1][1]) >= 3:
-            z, pts = layers[-1]
-            painter.setBrush(base_color); painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y in pts]))
-    def _tilted_point(self, obj, x: float, y: float, z: float) -> tuple[float, float]:
-        off = z * sin(radians(obj.tilt_deg))
+        if layers and len(layers[-1]) >= 3:
+            painter.setBrush(base_color); painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y, z in layers[-1]]))
+    def _tilted_point(self, obj, x: float, y: float, z: float, cx: float = 0.0, cy: float = 0.0) -> tuple[float, float, float]:
+        # Echte Starrkörper-Rotation um die Basis (cx, cy, 0) statt Scherung:
+        # Das Objekt behält seine Maße und Fläche, nur der Winkel ändert sich.
+        tilt = radians(obj.tilt_deg)
+        if abs(tilt) < 1e-9:
+            return x, y, z
         angle = radians(obj.orientation_deg + obj.rotation_z_deg)
-        return x + sin(angle) * off, y + cos(angle) * off
+        dir_x, dir_y = sin(angle), cos(angle)
+        lx, ly = x - cx, y - cy
+        along = lx * dir_x + ly * dir_y
+        perp_x, perp_y = lx - along * dir_x, ly - along * dir_y
+        along_rot = along * cos(tilt) + z * sin(tilt)
+        z_rot = z * cos(tilt) - along * sin(tilt)
+        return cx + perp_x + along_rot * dir_x, cy + perp_y + along_rot * dir_y, z_rot
     def _draw_prism(self, painter: QPainter, footprint: list[tuple[float, float]], height: float, obj=None) -> None:
+        pivot_x = pivot_y = 0.0
+        if obj is not None and footprint:
+            xs = [p[0] for p in footprint]; ys = [p[1] for p in footprint]
+            pivot_x = (min(xs) + max(xs)) * 0.5; pivot_y = (min(ys) + max(ys)) * 0.5
         if len(footprint) == 2:
             a, b = footprint
-            at = self._tilted_point(obj, *a, height) if obj else a
-            bt = self._tilted_point(obj, *b, height) if obj else b
-            painter.drawPolygon(QPolygonF([self._project(*a, 0.0), self._project(*b, 0.0), self._project(*bt, height), self._project(*at, height)]))
+            at = self._tilted_point(obj, a[0], a[1], height, pivot_x, pivot_y) if obj else (a[0], a[1], height)
+            bt = self._tilted_point(obj, b[0], b[1], height, pivot_x, pivot_y) if obj else (b[0], b[1], height)
+            painter.drawPolygon(QPolygonF([self._project(*a, 0.0), self._project(*b, 0.0), self._project(*bt), self._project(*at)]))
             return
         if len(footprint) < 3:
             return
-        top_xy = [self._tilted_point(obj, x, y, height) if obj else (x, y) for x, y in footprint]
+        top3 = [self._tilted_point(obj, x, y, height, pivot_x, pivot_y) if obj else (x, y, height) for x, y in footprint]
         bottom = [self._project(x, y, 0.0) for x, y in footprint]
-        top = [self._project(x, y, height) for x, y in top_xy]
+        top = [self._project(x, y, z) for x, y, z in top3]
         base_color = painter.brush().color()
         selected = bool(obj and (obj.object_id == self.state.selected_object_id or obj.object_id in getattr(self.state, "selected_object_ids", [])))
         if self._fast_object_render and not selected:
@@ -480,8 +490,8 @@ class Scene3DCanvas(QWidget):
         faces = []
         for i in range(len(footprint)):
             p1, p2 = footprint[i], footprint[(i + 1) % len(footprint)]
-            t1, t2 = top_xy[i], top_xy[(i + 1) % len(top_xy)]
-            depth = sum(self._rotate3(x, y, z)[2] for x, y, z in [(p1[0], p1[1], 0), (p2[0], p2[1], 0), (t2[0], t2[1], height), (t1[0], t1[1], height)]) / 4.0
+            t1, t2 = top3[i], top3[(i + 1) % len(top3)]
+            depth = sum(self._rotate3(x, y, z)[2] for x, y, z in [(p1[0], p1[1], 0), (p2[0], p2[1], 0), t2, t1]) / 4.0
             faces.append((depth, QPolygonF([bottom[i], bottom[(i + 1) % len(bottom)], top[(i + 1) % len(top)], top[i]])))
         painter.setBrush(base_color); painter.drawPolygon(QPolygonF(top))
         for _depth, face in sorted(faces, key=lambda f: f[0]):
@@ -498,23 +508,22 @@ class Scene3DCanvas(QWidget):
             self._draw_prism(painter, circle, crown_bottom, obj)
         painter.setPen(QPen(QColor(20, 70, 20), 1))
         painter.setBrush(QColor(color))
-        layers = [(z, [self._tilted_point(obj, x + cx, y + cy, z) for x, y in pts]) for z, pts in object_body_layers_local_m(obj) if z >= crown_bottom]
-        for (z1, pts1), (z2, pts2) in zip(layers, layers[1:]):
+        layers = [[self._tilted_point(obj, x + cx, y + cy, z, cx, cy) for x, y in pts] for z, pts in object_body_layers_local_m(obj) if z >= crown_bottom]
+        for pts1, pts2 in zip(layers, layers[1:]):
             count = min(len(pts1), len(pts2))
             for i in range(count):
-                a = self._project(*pts1[i], z1)
-                b = self._project(*pts1[(i + 1) % count], z1)
-                c = self._project(*pts2[(i + 1) % count], z2)
-                d = self._project(*pts2[i], z2)
+                a = self._project(*pts1[i])
+                b = self._project(*pts1[(i + 1) % count])
+                c = self._project(*pts2[(i + 1) % count])
+                d = self._project(*pts2[i])
                 painter.drawPolygon(QPolygonF([a, b, c, d]))
         if layers:
-            z, pts = layers[-1]
-            painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y in pts]))
+            painter.drawPolygon(QPolygonF([self._project(x, y, z) for x, y, z in layers[-1]]))
         if selected and layers:
             painter.setPen(QPen(QColor(255, 255, 255), 3))
-            for z, pts in (layers[0], layers[-1]):
+            for pts in (layers[0], layers[-1]):
                 if len(pts) >= 3:
-                    painter.drawPolyline(QPolygonF([self._project(x, y, z) for x, y in pts + [pts[0]]]))
+                    painter.drawPolyline(QPolygonF([self._project(x, y, z) for x, y, z in pts + [pts[0]]]))
     def _draw_custom_draft(self, painter: QPainter) -> None:
         if len(self.pending_custom) < 2: return
         painter.setPen(QPen(QColor(255,255,255), 2, Qt.PenStyle.DashLine)); painter.setBrush(Qt.BrushStyle.NoBrush)
