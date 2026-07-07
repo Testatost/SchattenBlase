@@ -69,6 +69,7 @@ class ShadowObject:
     name: str = ""
     surface_mode: str = "solid"
     color: str = ""
+    shadow_density: float = 1.0
     object_id: str = field(default_factory=lambda: uuid4().hex)
 
     @classmethod
@@ -159,6 +160,10 @@ class ShadowObject:
         values.setdefault("rotation_x_deg", 0.0)
         values.setdefault("rotation_y_deg", 0.0)
         values.setdefault("rotation_z_deg", 0.0)
+        try:
+            values["shadow_density"] = min(1.0, max(0.0, float(values.get("shadow_density", 1.0))))
+        except (TypeError, ValueError):
+            values["shadow_density"] = 1.0
         values.setdefault("surface_mode", "plane" if len(values.get("footprint_m", [])) == 2 else "solid")
         if values.get("kind_key") not in TREE_KINDS:
             values["kind_key"] = LEGACY_KIND_MAP.get(values.get("kind_key", ""), "custom")

@@ -149,7 +149,11 @@ class ControlPanel(QWidget):
     def _build_object_page(self) -> None:
         self.object_group = QGroupBox()
         form = QFormLayout(self.object_group)
+        # Die eigentliche Objekt-Auswahl sitzt als Icon-Leiste am rechten Rand
+        # des 3D-Vorschaufensters (KindPickerBar im MainWindow). Dieser Button
+        # bleibt unsichtbar als Zustandshalter für die aktuelle Auswahl.
         self.kind_combo = KindPickerButton()
+        self.kind_combo.setVisible(False)
         self.kind_combo.addItem("", None)
         kind_groups = [
             ("objects", [key for key, kind in TREE_KINDS.items() if kind.category == "geometry"]),
@@ -184,7 +188,14 @@ class ControlPanel(QWidget):
         self.orientation_spin = self._spin(0.0, 359.0, 1.0)
         self.tilt_slider = QSlider(Qt.Orientation.Horizontal); self.tilt_slider.setRange(-80, 80)
         self.orientation_slider = QSlider(Qt.Orientation.Horizontal); self.orientation_slider.setRange(0, 359)
-        self.object_kind_label = QLabel()
+        self.shadow_density_spin = QSpinBox()
+        self.shadow_density_spin.setRange(5, 100)
+        self.shadow_density_spin.setSingleStep(5)
+        self.shadow_density_spin.setValue(100)
+        self.shadow_density_spin.setSuffix(" %")
+        self.shadow_density_slider = QSlider(Qt.Orientation.Horizontal); self.shadow_density_slider.setRange(5, 100)
+        self.shadow_density_slider.setValue(100)
+        self.shadow_density_label = QLabel()
         self.selected_name_label = QLabel()
         self.height_label = QLabel()
         self.width_label = QLabel()
@@ -195,7 +206,6 @@ class ControlPanel(QWidget):
         self.tilt_label = QLabel()
         self.orientation_label = QLabel()
         for label, widget in [
-            (self.object_kind_label, self.kind_combo),
             (None, self.add_button),
             (None, self.draw_custom_button),
             (None, self.delete_button),
@@ -213,6 +223,7 @@ class ControlPanel(QWidget):
             (self.crown_height_label, self.crown_height_spin),
             (self.tilt_label, self.tilt_spin), (None, self.tilt_slider),
             (self.orientation_label, self.orientation_spin), (None, self.orientation_slider),
+            (self.shadow_density_label, self.shadow_density_spin), (None, self.shadow_density_slider),
         ]:
             form.addRow(label, widget) if label else form.addRow(widget)
         self.page_layouts["objects"].addWidget(self.object_group)
@@ -494,7 +505,6 @@ class ControlPanel(QWidget):
     def _retranslate_objects(self) -> None:
         self.object_group.setTitle(self.i18n.t("group.objects"))
         labels = [
-            (self.object_kind_label, "object.kind"),
             (self.selected_name_label, "object.name"),
             (self.object_color_button, "object.color"),
             (self.add_button, "object.add"),
@@ -512,6 +522,7 @@ class ControlPanel(QWidget):
             (self.crown_height_label, "object.crown_height"),
             (self.tilt_label, "object.tilt"),
             (self.orientation_label, "object.orientation"),
+            (self.shadow_density_label, "object.shadow_density"),
         ]
         for widget, key in labels:
             widget.setText(self.i18n.t(key))
