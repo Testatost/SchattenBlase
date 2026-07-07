@@ -26,6 +26,7 @@ from config import DEFAULT_LAT, DEFAULT_LON, DEFAULT_ZOOM
 from core.objects import TREE_KINDS
 from core.storage import Library
 from i18n import I18n, available_languages, language_label
+from ui.kind_picker import KindPickerButton, render_kind_icon
 class ControlPanel(QWidget):
     def __init__(self, i18n: I18n, timezone: ZoneInfo, parent=None) -> None:
         super().__init__(parent)
@@ -148,11 +149,17 @@ class ControlPanel(QWidget):
     def _build_object_page(self) -> None:
         self.object_group = QGroupBox()
         form = QFormLayout(self.object_group)
-        self.kind_combo = QComboBox()
+        self.kind_combo = KindPickerButton()
         self.kind_combo.addItem("", None)
-        for key, kind in TREE_KINDS.items():
-            if kind.category in {"tree", "geometry"}:
-                self.kind_combo.addItem("", key)
+        kind_groups = [
+            ("objects", [key for key, kind in TREE_KINDS.items() if kind.category == "geometry"]),
+            ("broadleaf", [key for key in TREE_KINDS if key.startswith("broadleaf")]),
+            ("conifer", [key for key in TREE_KINDS if key.startswith("conifer")]),
+        ]
+        for group, keys in kind_groups:
+            for key in keys:
+                kind = TREE_KINDS[key]
+                self.kind_combo.addItem("", key, group=group, icon=render_kind_icon(kind))
         self.add_button = QPushButton()
         self.draw_custom_button = QPushButton()
         self.object_import_buildings_button = QPushButton()
@@ -512,6 +519,9 @@ class ControlPanel(QWidget):
         for index in range(1, self.kind_combo.count()):
             key = self.kind_combo.itemData(index)
             self.kind_combo.setItemText(index, self.i18n.t(TREE_KINDS[key].label_key))
+        self.kind_combo.set_group_label("objects", self.i18n.t("group.objects"))
+        self.kind_combo.set_group_label("broadleaf", self.i18n.t("picker.broadleaf"))
+        self.kind_combo.set_group_label("conifer", self.i18n.t("picker.conifer"))
         self.object_library_group.setTitle(self.i18n.t("library.objects"))
         self.object_name_label.setText(self.i18n.t("library.name"))
         self.object_load_label.setText(self.i18n.t("library.saved"))
