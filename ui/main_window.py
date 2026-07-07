@@ -27,6 +27,7 @@ from core.storage import load_library, load_object, save_ground, save_library, s
 from i18n import I18n, available_languages, language_label
 from ui.canvas import MapCanvas
 from ui.control_panel import ControlPanel
+from ui.kind_picker import KindPickerBar
 from ui.metrics_panel import MetricsPanel
 from ui.scene3d import Scene3DCanvas
 from ui.main_window_actions import MainWindowActions
@@ -88,7 +89,14 @@ class MainWindow(MainWindowActions, QMainWindow):
         map_layout.addLayout(search_row)
         map_layout.addWidget(self.canvas, 1)
         self.preview_tabs.addTab(self.map_page, "")
-        self.preview_tabs.addTab(self.scene3d, "")
+        self.scene3d_page = QWidget()
+        scene3d_layout = QHBoxLayout(self.scene3d_page)
+        scene3d_layout.setContentsMargins(0, 0, 0, 0)
+        scene3d_layout.setSpacing(0)
+        scene3d_layout.addWidget(self.scene3d, 1)
+        self.kind_picker_bar = KindPickerBar()
+        scene3d_layout.addWidget(self.kind_picker_bar)
+        self.preview_tabs.addTab(self.scene3d_page, "")
         self.metrics_toggle = QPushButton()
         self.metrics_toggle.setCheckable(True)
         self.metrics_toggle.setChecked(True)
@@ -182,6 +190,9 @@ class MainWindow(MainWindowActions, QMainWindow):
         c.tilt_slider.valueChanged.connect(lambda v: c.tilt_spin.setValue(v))
         c.orientation_slider.valueChanged.connect(lambda v: c.orientation_spin.setValue(v))
         c.kind_combo.currentIndexChanged.connect(self.update_selected_kind)
+        self.kind_picker_bar.kind_selected.connect(self.select_kind_from_picker_bar)
+        c.shadow_density_spin.valueChanged.connect(self.update_selected_object)
+        c.shadow_density_slider.valueChanged.connect(lambda v: c.shadow_density_spin.setValue(v))
         c.date_edit.dateChanged.connect(self.apply_sun_from_datetime)
         c.time_edit.timeChanged.connect(self.apply_sun_from_datetime)
         for spin in [c.axis_x_spin, c.axis_y_spin, c.axis_z_spin]:
@@ -213,6 +224,7 @@ class MainWindow(MainWindowActions, QMainWindow):
         self.save_project_button.setText(self.i18n.t("project.save"))
         self.load_project_button.setText(self.i18n.t("project.load"))
         self.metrics_toggle.setText(self.i18n.t("metrics.toggle"))
+        self.kind_picker_bar.retranslate(self.i18n)
         self.map_search_edit.setPlaceholderText(self.i18n.t("search.placeholder"))
         for index in range(self.top_language_combo.count()):
             self.top_language_combo.setItemText(index, language_label(self.top_language_combo.itemData(index)))
@@ -349,6 +361,7 @@ class MainWindow(MainWindowActions, QMainWindow):
             c.crown_height_spin,
             c.tilt_spin, c.tilt_slider,
             c.orientation_spin, c.orientation_slider,
+            c.shadow_density_spin, c.shadow_density_slider,
             c.delete_button,
             c.save_object_button,
             c.export_object_button,
@@ -383,6 +396,10 @@ class MainWindow(MainWindowActions, QMainWindow):
         for slider, value in [(c.tilt_slider, obj.tilt_deg), (c.orientation_slider, obj.orientation_deg)]:
             with QSignalBlocker(slider):
                 slider.setValue(round(value))
+        density_percent = round(max(0.05, min(1.0, getattr(obj, "shadow_density", 1.0))) * 100)
+        for widget in [c.shadow_density_spin, c.shadow_density_slider]:
+            with QSignalBlocker(widget):
+                widget.setValue(density_percent)
         index = c.kind_combo.findData(obj.kind_key)
         with QSignalBlocker(c.kind_combo):
             c.kind_combo.setCurrentIndex(index if index >= 0 else 0)
@@ -392,6 +409,16 @@ class MainWindow(MainWindowActions, QMainWindow):
             with QSignalBlocker(self.controls.add_button):
                 self.controls.add_button.setChecked(True)
             self.activate_add_mode(True)
+    def select_kind_from_picker_bar(self, key: str) -> None:
+        c = self.controls
+        index = c.kind_combo.findData(key)
+        if index < 0:
+            return
+        with QSignalBlocker(c.kind_combo):
+            c.kind_combo.setCurrentIndex(index)
+        with QSignalBlocker(c.add_button):
+            c.add_button.setChecked(True)
+        self.activate_add_mode(True)
     def update_selected_object(self) -> None:
         obj = self.state.selected_object()
         if obj is None:
@@ -420,8 +447,10 @@ class MainWindow(MainWindowActions, QMainWindow):
             obj.footprint_m = [(-w, -d), (w, -d), (w, d), (-w, d)]
         obj.tilt_deg = c.tilt_spin.value()
         obj.orientation_deg = c.orientation_spin.value()
+        obj.shadow_density = c.shadow_density_spin.value() / 100.0
         with QSignalBlocker(c.tilt_slider): c.tilt_slider.setValue(round(obj.tilt_deg))
         with QSignalBlocker(c.orientation_slider): c.orientation_slider.setValue(round(obj.orientation_deg))
+        with QSignalBlocker(c.shadow_density_slider): c.shadow_density_slider.setValue(c.shadow_density_spin.value())
         self.canvas.redraw_overlays()
         self.update_views()
     def update_selected_name(self, text: str) -> None:

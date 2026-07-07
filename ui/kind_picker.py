@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QMenu, QToolButton
+from PySide6.QtWidgets import QMenu, QToolButton, QVBoxLayout, QWidget
 
-from core.objects import TreeKind
+from core.objects import TREE_KINDS, TreeKind
 
 
 def render_kind_icon(kind: TreeKind, size: int = 28) -> QIcon:
@@ -147,3 +147,63 @@ class KindPickerButton(QToolButton):
         item = self._items[self._current_index]
         self.setText(item["text"])
         self.setIcon(item["icon"] or QIcon())
+
+
+class KindPickerBar(QWidget):
+    """Vertical icon-only picker docked at the edge of the 3D preview.
+
+    One button per category (geometry, broadleaf, conifer); each opens a
+    drop-down with the kinds of that category. The button icon follows the
+    last picked kind."""
+
+    kind_selected = Signal(str)
+
+    GROUPS = [
+        ("geometry", "picker.geometry", "cube"),
+        ("broadleaf", "picker.broadleaf", "broadleaf_1"),
+        ("conifer", "picker.conifer", "conifer_1"),
+    ]
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 6, 2, 6)
+        layout.setSpacing(6)
+        self._buttons: dict[str, QToolButton] = {}
+        self._tooltip_keys: dict[str, str] = {}
+        self._actions: list[tuple[object, str]] = []
+        for group, tooltip_key, default_key in self.GROUPS:
+            keys = [key for key, kind in TREE_KINDS.items() if self._in_group(key, kind, group)]
+            button = QToolButton(self)
+            button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            button.setIconSize(QSize(30, 30))
+            button.setAutoRaise(True)
+            button.setStyleSheet("QToolButton::menu-indicator{image:none;}")
+            button.setIcon(render_kind_icon(TREE_KINDS[default_key], 30))
+            menu = QMenu(button)
+            for key in keys:
+                action = menu.addAction(render_kind_icon(TREE_KINDS[key]), "")
+                action.triggered.connect(lambda _checked=False, g=group, k=key: self._on_pick(g, k))
+                self._actions.append((action, key))
+            button.setMenu(menu)
+            layout.addWidget(button)
+            self._buttons[group] = button
+            self._tooltip_keys[group] = tooltip_key
+        layout.addStretch(1)
+
+    @staticmethod
+    def _in_group(key: str, kind: TreeKind, group: str) -> bool:
+        if group == "geometry":
+            return kind.category == "geometry"
+        return key.startswith(group)
+
+    def _on_pick(self, group: str, key: str) -> None:
+        self._buttons[group].setIcon(render_kind_icon(TREE_KINDS[key], 30))
+        self.kind_selected.emit(key)
+
+    def retranslate(self, i18n) -> None:
+        for group, tooltip_key in self._tooltip_keys.items():
+            self._buttons[group].setToolTip(i18n.t(tooltip_key))
+        for action, key in self._actions:
+            action.setText(i18n.t(TREE_KINDS[key].label_key))

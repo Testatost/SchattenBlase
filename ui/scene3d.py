@@ -9,7 +9,7 @@ from config import DEFAULT_LAT, DEFAULT_LON
 from core.geometry import convex_hull, latlon_to_local_m, local_m_to_latlon, polygon_centroid
 from core.objects import ShadowObject, SimulationState, TREE_KINDS
 from core.mesh_edit import apply_handle_drag, edit_handles_local
-from core.simulation import object_body_layers_local_m, object_footprint_local_m, shadow_union_polygons_world
+from core.simulation import object_body_layers_local_m, object_footprint_local_m, shadow_union_polygons_by_density_world
 from i18n import I18n
 from ui.scene3d_tools import draw_dimensions, copy_selected, paste_copied, hit_projected_object, grid_bounds_from_bbox
 from ui.scene3d_gizmo import draw_gizmo
@@ -318,17 +318,19 @@ class Scene3DCanvas(QWidget):
             round(self.state.sun_altitude_deg, 3),
             len(self.state.objects),
             tuple(o.object_id for o in self.state.objects),
+            tuple(round(getattr(o, "shadow_density", 1.0), 2) for o in self.state.objects),
         )
         if key != self._shadow_cache_key:
             self._shadow_cache_key = key
-            self._shadow_cache_polys = shadow_union_polygons_world(self.state.objects, origin[0], origin[1], self.state.sun_azimuth_deg, self.state.sun_altitude_deg)
+            self._shadow_cache_polys = shadow_union_polygons_by_density_world(self.state.objects, origin[0], origin[1], self.state.sun_azimuth_deg, self.state.sun_altitude_deg)
         return self._shadow_cache_polys
     def _draw_shadows(self, painter: QPainter, origin: tuple[float, float]) -> None:
-        painter.setPen(QPen(QColor(45, 45, 45, 120), 1))
-        painter.setBrush(QColor(45, 45, 45, 70))
-        for poly in self._shadow_polys(origin):
-            if len(poly) >= 3:
-                painter.drawPolygon(self._poly(poly))
+        for density, polys in self._shadow_polys(origin):
+            painter.setPen(QPen(QColor(45, 45, 45, max(1, round(120 * density))), 1))
+            painter.setBrush(QColor(45, 45, 45, max(1, round(70 * density))))
+            for poly in polys:
+                if len(poly) >= 3:
+                    painter.drawPolygon(self._poly(poly))
     def _draw_objects(self, painter: QPainter, origin: tuple[float, float]) -> None:
         entries = []
         total_count = len(self.state.objects)

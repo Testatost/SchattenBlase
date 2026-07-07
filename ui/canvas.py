@@ -23,7 +23,7 @@ from core.simulation import (
     object_shadow_areas_m2,
     shadow_area_m2,
     shadow_area_raw_m2,
-    shadow_union_polygons_latlon,
+    shadow_union_polygons_by_density_latlon,
     total_shadow_area_m2,
     total_shadow_on_ground_m2,
 )
@@ -299,15 +299,16 @@ class MapCanvas(QGraphicsView):
         # Objekten übersprungen.
         if len(self.state.objects) > MAX_MAP_SHADOW_OBJECTS:
             return
-        for polygon in shadow_union_polygons_latlon(self.state.objects, self.state.sun_azimuth_deg, self.state.sun_altitude_deg):
-            if len(polygon) < 3:
-                continue
-            item = QGraphicsPolygonItem(QPolygonF([self._latlon_point(lat, lon) for lat, lon in polygon]))
-            item.setPen(QPen(QColor(45, 45, 45, 150), 1))
-            item.setBrush(QColor(45, 45, 45, 85))
-            item.setZValue(20)
-            self.scene_obj.addItem(item)
-            self.overlay_items.append(item)
+        for density, polygons in shadow_union_polygons_by_density_latlon(self.state.objects, self.state.sun_azimuth_deg, self.state.sun_altitude_deg):
+            for polygon in polygons:
+                if len(polygon) < 3:
+                    continue
+                item = QGraphicsPolygonItem(QPolygonF([self._latlon_point(lat, lon) for lat, lon in polygon]))
+                item.setPen(QPen(QColor(45, 45, 45, max(1, round(150 * density))), 1))
+                item.setBrush(QColor(45, 45, 45, max(1, round(85 * density))))
+                item.setZValue(20)
+                self.scene_obj.addItem(item)
+                self.overlay_items.append(item)
     def _draw_polygon_overlay(self, polygon: list[tuple[float, float]], color: QColor, z: int, dashed: bool = False):
         if not polygon:
             return None

@@ -537,7 +537,7 @@ def object_shadow_areas_m2(objects: list[ShadowObject], sun_azimuth_deg: float, 
     return effective_object_shadow_areas_m2(objects, sun_azimuth_deg, sun_altitude_deg)
 
 
-def shadow_union_polygons_world(objects: list[ShadowObject], origin_lat: float, origin_lon: float, sun_azimuth_deg: float, sun_altitude_deg: float) -> list[list[tuple[float, float]]]:
+def shadow_union_polygons_world(objects: list[ShadowObject], origin_lat: float, origin_lon: float, sun_azimuth_deg: float, sun_altitude_deg: float, blocker_objects: list[ShadowObject] | None = None) -> list[list[tuple[float, float]]]:
     polygons = _shadow_polygons_world(objects, (origin_lat, origin_lon), sun_azimuth_deg, sun_altitude_deg)
     if Polygon is None or unary_union is None:
         return [p for p in polygons if len(p) >= 3]
@@ -547,7 +547,8 @@ def shadow_union_polygons_world(objects: list[ShadowObject], origin_lat: float, 
     geom = unary_union(geoms)
     if hasattr(geom, "simplify"):
         geom = geom.simplify(0.12, preserve_topology=True)
-    blockers = [g for g in (_shapely_poly(p) for p in _object_footprints_world(objects, (origin_lat, origin_lon))) if g is not None]
+    footprint_objects = blocker_objects if blocker_objects is not None else objects
+    blockers = [g for g in (_shapely_poly(p) for p in _object_footprints_world(footprint_objects, (origin_lat, origin_lon))) if g is not None]
     if blockers:
         geom = geom.difference(unary_union(blockers))
     polys = list(geom.geoms) if hasattr(geom, "geoms") else [geom]
@@ -562,3 +563,33 @@ def shadow_union_polygons_world(objects: list[ShadowObject], origin_lat: float, 
 def shadow_union_polygons_latlon(objects: list[ShadowObject], sun_azimuth_deg: float, sun_altitude_deg: float) -> list[list[tuple[float, float]]]:
     origin = _origin_for(objects)
     return [[local_m_to_latlon(x, y, origin[0], origin[1]) for x, y in poly] for poly in shadow_union_polygons_world(objects, origin[0], origin[1], sun_azimuth_deg, sun_altitude_deg)]
+
+
+def object_shadow_density(obj: ShadowObject) -> float:
+    try:
+        return min(1.0, max(0.0, float(getattr(obj, "shadow_density", 1.0))))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def shadow_union_polygons_by_density_world(objects: list[ShadowObject], origin_lat: float, origin_lon: float, sun_azimuth_deg: float, sun_altitude_deg: float) -> list[tuple[float, list[list[tuple[float, float]]]]]:
+    """Groups objects by shadow density so each group can be drawn with its own
+    opacity. Footprints of ALL objects are subtracted from every group, matching
+    the previous single-union behaviour."""
+    groups: dict[float, list[ShadowObject]] = {}
+    for obj in objects:
+        groups.setdefault(round(object_shadow_density(obj), 2), []).append(obj)
+    result: list[tuple[float, list[list[tuple[float, float]]]]] = []
+    for density in sorted(groups):
+        polys = shadow_union_polygons_world(groups[density], origin_lat, origin_lon, sun_azimuth_deg, sun_altitude_deg, blocker_objects=objects)
+        if polys:
+            result.append((density, polys))
+    return result
+
+
+def shadow_union_polygons_by_density_latlon(objects: list[ShadowObject], sun_azimuth_deg: float, sun_altitude_deg: float) -> list[tuple[float, list[list[tuple[float, float]]]]]:
+    origin = _origin_for(objects)
+    return [
+        (density, [[local_m_to_latlon(x, y, origin[0], origin[1]) for x, y in poly] for poly in polys])
+        for density, polys in shadow_union_polygons_by_density_world(objects, origin[0], origin[1], sun_azimuth_deg, sun_altitude_deg)
+    ]
