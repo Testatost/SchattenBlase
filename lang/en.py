@@ -70,7 +70,6 @@ MESSAGES = {
     "tree.broadleaf_2": "Broadleaf (oval)",
     "tree.broadleaf_3": "Broadleaf (broad)",
     "tree.broadleaf_4": "Broadleaf (columnar, e.g. poplar)",
-    "tree.broadleaf_5": "Broadleaf (weeping, e.g. willow)",
     "tree.broadleaf_6": "Broadleaf (umbrella)",
     "tree.conifer_1": "Conifer (cone, e.g. spruce)",
     "tree.conifer_2": "Conifer (tall, e.g. fir)",

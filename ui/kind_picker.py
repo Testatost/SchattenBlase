@@ -73,14 +73,6 @@ def render_kind_icon(kind: TreeKind, size: int = 28) -> QIcon:
         elif shape == "broadleaf_4":
             # Säulenform: hohe schmale Krone
             painter.drawEllipse(QRectF(size / 2 - width * 0.24, crown_top, width * 0.48, size - 2 * margin))
-        elif shape == "broadleaf_5":
-            # Trauerform: breite Schulter mit hängenden Ästen
-            painter.drawEllipse(QRectF(margin, crown_top, width, crown_h * 0.62))
-            pen = QPen(color.darker(120), max(1.0, size * 0.06))
-            painter.setPen(pen)
-            for fx in (0.22, 0.42, 0.62, 0.82):
-                x = margin + width * fx
-                painter.drawLine(QPointF(x, crown_top + crown_h * 0.45), QPointF(x - size * 0.04, crown_bottom + trunk_h * 0.3))
         elif shape == "broadleaf_6":
             # Schirmform: flache breite Krone oben
             painter.drawChord(QRectF(margin * 0.6, crown_top, size - margin * 1.2, crown_h * 1.3), 0, 180 * 16)

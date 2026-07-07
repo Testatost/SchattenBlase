@@ -17,8 +17,6 @@ from core.simulation import (
     tilt_transform_point,
     tree_crown_bottom_z,
     tree_crown_layers_local_m,
-    tree_crown_visible_bottom_z,
-    willow_strand_polylines_local_m,
 )
 from i18n import I18n
 from ui.scene3d_tools import draw_dimensions, copy_selected, paste_copied, hit_projected_object, grid_bounds_from_bbox
@@ -554,16 +552,14 @@ class Scene3DCanvas(QWidget):
         kind = TREE_KINDS.get(obj.kind_key, TREE_KINDS["custom"])
         crown_bottom = tree_crown_bottom_z(obj)
         crown_height = obj.height_m - crown_bottom
-        visible_bottom = tree_crown_visible_bottom_z(obj)
-        if trunk > 0.02 and visible_bottom > 0.05:
+        if trunk > 0.02 and crown_bottom > 0.05:
             painter.setPen(QPen(QColor(80, 55, 35), 1))
             painter.setBrush(QColor(95, 67, 40))
             radius = trunk * 0.5
             circle = [(cx + cos(2 * pi * i / 20) * radius, cy + sin(2 * pi * i / 20) * radius) for i in range(20)]
-            # Stamm bis zum sichtbaren Kronenvolumen und etwas hinein, damit
-            # an der Verbindungsstelle keine Lücke sichtbar wird — bei der
-            # Trauerform also durch den Astvorhang bis zum Kronendach.
-            self._draw_prism(painter, circle, min(obj.height_m, visible_bottom + max(0.3, crown_height * 0.08)), obj)
+            # Stamm etwas in die Krone hineinziehen, damit an der
+            # Verbindungsstelle keine Lücke sichtbar wird.
+            self._draw_prism(painter, circle, min(obj.height_m, crown_bottom + max(0.3, crown_height * 0.08)), obj)
         painter.setPen(QPen(QColor(20, 70, 20), 1))
         painter.setBrush(QColor(color))
         crown_layers = tree_crown_layers_local_m(obj)
@@ -595,14 +591,6 @@ class Scene3DCanvas(QWidget):
                 painter.drawPolygon(QPolygonF([pts1[i], pts1[j], pts2[j], pts2[i]]))
         if layers:
             painter.drawPolygon(QPolygonF(layers[-1]))
-        if kind.crown_shape == "broadleaf_5" and not self._fast_object_render:
-            # Einzelne lange, herabhängende Äste — gleiche Geometrie wie im
-            # Schattenmodell (willow_strand_polylines_local_m).
-            painter.setPen(QPen(QColor(color).darker(130), 2))
-            for strand in willow_strand_polylines_local_m(obj):
-                pts = [self._project(*self._tilted_point(obj, x + cx, y + cy, z, cx, cy, crown=True)) for x, y, z in strand]
-                painter.drawPolyline(QPolygonF(pts))
-            painter.setPen(QPen(QColor(20, 70, 20), 1))
         if selected and layers:
             painter.setPen(QPen(QColor(255, 255, 255), 3))
             for pts in (layers[0], layers[-1]):

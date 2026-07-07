@@ -27,7 +27,6 @@ TREE_KINDS: dict[str, TreeKind] = {
     "broadleaf_2": TreeKind("broadleaf_2", "tree.broadleaf_2", 18.0, 9.0, "#4f9342", "broadleaf_2", 11.5, 0.55),
     "broadleaf_3": TreeKind("broadleaf_3", "tree.broadleaf_3", 10.0, 12.0, "#6aa84f", "broadleaf_3", 5.5, 0.40),
     "broadleaf_4": TreeKind("broadleaf_4", "tree.broadleaf_4", 18.0, 4.5, "#4a8f3f", "broadleaf_4", 14.5, 0.35),
-    "broadleaf_5": TreeKind("broadleaf_5", "tree.broadleaf_5", 12.0, 10.0, "#5f9c49", "broadleaf_5", 9.5, 0.50),
     "broadleaf_6": TreeKind("broadleaf_6", "tree.broadleaf_6", 9.0, 12.0, "#579146", "broadleaf_6", 3.5, 0.45),
     "conifer_1": TreeKind("conifer_1", "tree.conifer_1", 20.0, 7.0, "#245c45", "conifer_1", 16.0, 0.38),
     "conifer_2": TreeKind("conifer_2", "tree.conifer_2", 28.0, 8.0, "#2f6b48", "conifer_2", 23.0, 0.45),
@@ -55,6 +54,9 @@ LEGACY_KIND_MAP: dict[str, str] = {
     "acacia": "broadleaf_3", "field_maple": "broadleaf_3", "apple": "broadleaf_3", "cherry": "broadleaf_3", "rowan": "broadleaf_3", "willow": "broadleaf_3",
     "spruce": "conifer_1", "fir": "conifer_2", "larch": "conifer_2", "pine": "conifer_3",
     "boxwood": "shrub_1", "hazel_bush": "shrub_2", "rose_bush": "shrub_1", "hedge": "shrub_2",
+    # Die Trauerform (broadleaf_5) wurde wieder entfernt; alte Projekte
+    # fallen auf den runden Laubbaum zurück.
+    "broadleaf_5": "broadleaf_1",
 }
 
 
