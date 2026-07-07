@@ -61,8 +61,6 @@ def _crown_radius(shape: str, angle: float) -> float:
         return 1.0 + 0.045 * sin(6.0 * angle) - 0.030 * cos(2.0 * angle)
     if shape == "broadleaf_4":
         return 1.0 + 0.020 * sin(5.0 * angle)
-    if shape == "broadleaf_5":
-        return 1.0 + 0.055 * sin(7.0 * angle) + 0.025 * cos(3.0 * angle)
     if shape == "broadleaf_6":
         return 1.0 + 0.030 * sin(9.0 * angle)
     if shape == "conifer_5":
@@ -107,10 +105,6 @@ def _tree_layer_radius(shape: str, t: float) -> float:
         # Säulenform (z. B. Pyramidenpappel): fast konstante Breite,
         # oben und unten abgerundet.
         return max(0.06, sin(pi * min(t * 0.72 + 0.14, 1.0)) ** 0.16)
-    if shape == "broadleaf_5":
-        # Trauerform (z. B. Trauerweide): breite Schulter oben,
-        # herabhängende Äste bis weit nach unten.
-        return max(0.10, (0.55 + 0.50 * t ** 0.7) * (1.0 - 0.55 * max(0.0, (t - 0.82) / 0.18) ** 2))
     if shape == "broadleaf_6":
         # Schirmform (z. B. Schirmakazie): unten schmal, oben flache
         # ausladende Krone.
@@ -182,7 +176,7 @@ def tree_crown_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tuple
     key = (
         kind.crown_shape, round(obj.height_m, 3), round(obj.crown_width_m or obj.width_m, 3),
         round(crown_bottom, 3), round(obj.orientation_deg + obj.rotation_z_deg, 2),
-        tuple(obj.footprint_m[:8]) if len(obj.footprint_m) >= 3 else None,
+        tuple(tuple(p) for p in obj.footprint_m) if len(obj.footprint_m) >= 3 else None,
     )
     cached = _crown_layer_cache.get(key)
     if cached is not None:
@@ -192,10 +186,6 @@ def tree_crown_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tuple
     # Gestufte Kronen (Fichte/Tanne) noch dichter, damit die Aststufen sichtbar sind.
     if kind.crown_shape in {"conifer_1", "conifer_2"}:
         ts = [i / 30.0 for i in range(0, 31)]
-    elif kind.crown_shape == "broadleaf_5":
-        # Trauerform: Als Volumen zählt nur das obere Kronendach — darunter
-        # hängen einzelne Äste (siehe willow_strand_polylines_local_m).
-        ts = [0.45 + i * 0.55 / 12.0 for i in range(0, 13)]
     elif kind.crown_shape.startswith(("conifer", "shrub", "potted")) or kind.crown_shape in {"broadleaf_4", "broadleaf_6"}:
         ts = [i / 18.0 for i in range(0, 19)]
     else:
@@ -210,40 +200,6 @@ def tree_crown_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tuple
     return layers
 
 
-def tree_crown_visible_bottom_z(obj: ShadowObject) -> float:
-    """Unterkante des sichtbaren Kronenvolumens — bei der Trauerform liegt
-    sie oberhalb des Kronenansatzes, der Stamm muss bis dorthin reichen."""
-    kind = TREE_KINDS.get(obj.kind_key, TREE_KINDS["custom"])
-    crown_bottom = tree_crown_bottom_z(obj)
-    if kind.crown_shape == "broadleaf_5":
-        return crown_bottom + (obj.height_m - crown_bottom) * 0.45
-    return crown_bottom
-
-
-def willow_strand_polylines_local_m(obj: ShadowObject) -> list[list[tuple[float, float, float]]]:
-    """Einzelne herabhängende Äste der Trauerform als 3D-Polylinien
-    (lokale Koordinaten, ohne Neigung) — gemeinsame Basis für 3D-Ansicht
-    und Schattenwurf."""
-    kind = TREE_KINDS.get(obj.kind_key, TREE_KINDS["custom"])
-    if kind.crown_shape != "broadleaf_5":
-        return []
-    crown_bottom = tree_crown_bottom_z(obj)
-    rim_z = tree_crown_visible_bottom_z(obj)
-    width = max(obj.crown_width_m or obj.width_m, 0.2)
-    rim_radius = width * 0.5 * _tree_layer_radius("broadleaf_5", 0.45)
-    end_z = max(0.25, crown_bottom * 0.3)
-    strands: list[list[tuple[float, float, float]]] = []
-    count = 14
-    for i in range(count):
-        a = 2.0 * pi * i / count + 0.22
-        pts: list[tuple[float, float, float]] = []
-        for f in (0.0, 0.3, 0.65, 1.0):
-            # leicht nach außen gebogen, unten wieder etwas einwärts
-            r = rim_radius * (1.0 + 0.10 * sin(pi * min(f * 1.15, 1.0))) * (1.0 - 0.12 * f)
-            z = rim_z + (end_z - rim_z) * f
-            pts.append((r * cos(a), r * sin(a), z))
-        strands.append(pts)
-    return strands
 
 
 def _regular_points(width_m: float, depth_m: float | None = None, count: int = 40) -> list[tuple[float, float]]:
@@ -318,7 +274,7 @@ def _trunk_layers(obj: ShadowObject) -> list[tuple[float, list[tuple[float, floa
     if not obj.is_tree() or obj.trunk_diameter_m <= 0.0:
         return []
     radius = max(0.03, obj.trunk_diameter_m * 0.5)
-    top = tree_crown_visible_bottom_z(obj)
+    top = tree_crown_bottom_z(obj)
     if top <= 0.05:
         return []
     pts = tree_layer_points(radius * 2.0, "broad", 0.5, 24)
@@ -434,25 +390,6 @@ def _round_shadow_from_layers(obj: ShadowObject, layers: list[tuple[float, list[
     return [hull] if len(hull) >= 3 else []
 
 
-def _willow_strand_shadow_parts(obj: ShadowObject, away_x: float, away_y: float, tan_alt: float) -> list[list[tuple[float, float]]]:
-    # Jeder hängende Ast wirft ein schmales Schattenband entlang seiner
-    # projizierten Linie.
-    parts: list[list[tuple[float, float]]] = []
-    half_width = 0.09
-    for strand in willow_strand_polylines_local_m(obj):
-        projected: list[tuple[float, float]] = []
-        for x, y, z in strand:
-            tx, ty, tz = tilt_transform_point(obj, x, y, z, crown=True)
-            shadow_length = max(0.0, tz) / tan_alt
-            projected.append((tx + away_x * shadow_length, ty + away_y * shadow_length))
-        for (x1, y1), (x2, y2) in zip(projected, projected[1:]):
-            dx, dy = x2 - x1, y2 - y1
-            length = sqrt(dx * dx + dy * dy)
-            if length < 1e-6:
-                continue
-            ox, oy = -dy / length * half_width, dx / length * half_width
-            parts.append([(x1 + ox, y1 + oy), (x2 + ox, y2 + oy), (x2 - ox, y2 - oy), (x1 - ox, y1 - oy)])
-    return parts
 
 
 def _sphere_shadow(obj: ShadowObject, away_x: float, away_y: float, tan_alt: float) -> list[list[tuple[float, float]]]:
@@ -500,7 +437,6 @@ def shadow_polygons_local_m(obj: ShadowObject, sun_azimuth_deg: float, sun_altit
         parts: list[list[tuple[float, float]]] = []
         parts.extend(_round_shadow_from_layers(obj, _trunk_layers(obj), away_x, away_y, tan_alt))
         parts.extend(_round_shadow_from_layers(obj, tree_crown_layers_local_m(obj), away_x, away_y, tan_alt, crown=True))
-        parts.extend(_willow_strand_shadow_parts(obj, away_x, away_y, tan_alt))
         return _union_parts_to_polygons(parts)
     if kind.crown_shape in {"sphere", "cylinder", "cone"}:
         return _shadow_for_round_geometry(obj, away_x, away_y, tan_alt)

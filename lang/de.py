@@ -70,7 +70,6 @@ MESSAGES = {
     "tree.broadleaf_2": "Laubbaum (oval)",
     "tree.broadleaf_3": "Laubbaum (breit)",
     "tree.broadleaf_4": "Laubbaum (Säule, z. B. Pappel)",
-    "tree.broadleaf_5": "Laubbaum (hängend, z. B. Trauerweide)",
     "tree.broadleaf_6": "Laubbaum (Schirm)",
     "tree.conifer_1": "Nadelbaum (Kegel, z. B. Fichte)",
     "tree.conifer_2": "Nadelbaum (hoch, z. B. Tanne)",

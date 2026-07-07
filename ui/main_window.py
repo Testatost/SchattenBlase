@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QSizePolicy,
 )
+from core.geometry import bbox_size
 from core.history import snapshot_state
 from core.objects import SimulationState, TREE_KINDS
 from core.solar import daylight_times, season_date, solar_position
@@ -447,6 +448,26 @@ class MainWindow(MainWindowActions, QMainWindow):
         obj.trunk_diameter_m = c.trunk_spin.value()
         obj.crown_width_m = c.crown_width_spin.value() if obj.is_tree() else obj.width_m
         obj.crown_height_m = min(c.crown_height_spin.value(), obj.height_m)
+        if obj.is_tree() and len(obj.footprint_m) >= 3:
+            # Per Maus verformte Kronenkontur: Panel-Werte skalieren die
+            # Kontur mit, statt wirkungslos zu bleiben.
+            fp_width, fp_depth = bbox_size(obj.footprint_m)
+            if sender is c.crown_width_spin and max(fp_width, fp_depth) > 0.01:
+                factor = obj.crown_width_m / max(fp_width, fp_depth)
+                obj.footprint_m = [(px * factor, py * factor) for px, py in obj.footprint_m]
+                obj.width_m = max(fp_width * factor, 0.1)
+                obj.depth_m = max(fp_depth * factor, 0.1)
+                for spin, value in [(c.width_spin, obj.width_m), (c.depth_spin, obj.depth_m)]:
+                    with QSignalBlocker(spin):
+                        spin.setValue(value)
+            else:
+                sx = obj.width_m / max(fp_width, 0.001)
+                sy = (obj.depth_m or fp_depth) / max(fp_depth, 0.001)
+                if abs(sx - 1.0) > 1e-6 or abs(sy - 1.0) > 1e-6:
+                    obj.footprint_m = [(px * sx, py * sy) for px, py in obj.footprint_m]
+                obj.crown_width_m = max(obj.width_m, obj.depth_m or obj.width_m)
+                with QSignalBlocker(c.crown_width_spin):
+                    c.crown_width_spin.setValue(obj.crown_width_m)
         if kind.crown_shape == "box":
             w = max(obj.width_m, 0.1) * 0.5; d = max(obj.depth_m or obj.width_m, 0.1) * 0.5
             obj.footprint_m = [(-w, -d), (w, -d), (w, d), (-w, d)]
