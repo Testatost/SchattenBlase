@@ -21,8 +21,9 @@ def render_kind_icon(kind: TreeKind, size: int = 28) -> QIcon:
     shape = kind.crown_shape
 
     if kind.category == "tree":
+        # Schirmformen brauchen einen langen sichtbaren Stamm.
         trunk_w = size * 0.12
-        trunk_h = size * 0.30
+        trunk_h = size * (0.52 if shape in {"broadleaf_6", "conifer_4"} else 0.30)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor("#6b4a2b"))
         painter.drawRect(QRectF(size / 2 - trunk_w / 2, size - margin - trunk_h, trunk_w, trunk_h))
@@ -30,13 +31,34 @@ def render_kind_icon(kind: TreeKind, size: int = 28) -> QIcon:
         painter.setBrush(color)
         crown_top = margin
         crown_bottom = size - margin - trunk_h * 0.7
-        if shape.startswith("conifer"):
+        crown_h = crown_bottom - crown_top
+        if shape == "conifer_4":
+            # Schirmkiefer: flacher, breiter Kronenschirm oben
+            painter.drawChord(QRectF(margin * 0.6, crown_top, size - margin * 1.2, crown_h * 1.5), 0, 180 * 16)
+        elif shape == "conifer_5":
+            # Säulenzypresse: schmale Flamme
+            painter.drawEllipse(QRectF(size / 2 - width * 0.18, crown_top, width * 0.36, size - 2 * margin))
+        elif shape.startswith("conifer"):
             points = QPolygonF([
                 QPointF(size / 2, crown_top),
                 QPointF(margin, crown_bottom),
                 QPointF(size - margin, crown_bottom),
             ])
             painter.drawPolygon(points)
+        elif shape == "broadleaf_4":
+            # Säulenform: hohe schmale Krone
+            painter.drawEllipse(QRectF(size / 2 - width * 0.24, crown_top, width * 0.48, size - 2 * margin))
+        elif shape == "broadleaf_5":
+            # Trauerform: breite Schulter mit hängenden Ästen
+            painter.drawEllipse(QRectF(margin, crown_top, width, crown_h * 0.62))
+            pen = QPen(color.darker(120), max(1.0, size * 0.06))
+            painter.setPen(pen)
+            for fx in (0.22, 0.42, 0.62, 0.82):
+                x = margin + width * fx
+                painter.drawLine(QPointF(x, crown_top + crown_h * 0.45), QPointF(x - size * 0.04, crown_bottom + trunk_h * 0.3))
+        elif shape == "broadleaf_6":
+            # Schirmform: flache breite Krone oben
+            painter.drawChord(QRectF(margin * 0.6, crown_top, size - margin * 1.2, crown_h * 1.3), 0, 180 * 16)
         else:
             painter.drawEllipse(QRectF(margin, crown_top, width, crown_bottom - crown_top))
     else:

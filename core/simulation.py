@@ -30,7 +30,15 @@ def _crown_radius(shape: str, angle: float) -> float:
         return 1.0 + 0.025 * sin(4.0 * angle) + 0.020 * cos(6.0 * angle)
     if shape == "broadleaf_3":
         return 1.0 + 0.045 * sin(6.0 * angle) - 0.030 * cos(2.0 * angle)
-    if shape in {"conifer_1", "conifer_2", "conifer_3"}:
+    if shape == "broadleaf_4":
+        return 1.0 + 0.020 * sin(5.0 * angle)
+    if shape == "broadleaf_5":
+        return 1.0 + 0.055 * sin(7.0 * angle) + 0.025 * cos(3.0 * angle)
+    if shape == "broadleaf_6":
+        return 1.0 + 0.030 * sin(9.0 * angle)
+    if shape == "conifer_5":
+        return 1.0
+    if shape.startswith("conifer"):
         return 0.99 + 0.018 * sin(8.0 * angle)
     return 1.0
 
@@ -43,12 +51,31 @@ def _tree_layer_radius(shape: str, t: float) -> float:
     if shape == "conifer_3":
         # Kompakte, aber klar nadelbaumartige kegelige Krone.
         return max(0.025, (1.0 - t) ** 0.88) * (0.98 + 0.04 * sin(5.0 * pi * t))
+    if shape == "conifer_4":
+        # Schirmkiefer/Pinie: kahler Stamm, breiter flacher Kronenschirm
+        # mit abgerundetem Rand.
+        return max(0.03, (t ** 1.25) * (1.0 - 0.35 * max(0.0, (t - 0.88) / 0.12) ** 2))
+    if shape == "conifer_5":
+        # Säulenzypresse: schlanke, glatte Flammenform.
+        return max(0.05, sin(pi * min(t * 0.80 + 0.12, 1.0)) ** 0.30)
     if shape == "broadleaf_1":
         return max(0.05, sin(pi * t) ** 0.44)
     if shape == "broadleaf_2":
         return max(0.04, sin(pi * min(t * 0.92 + 0.04, 1.0)) ** 0.54) * (0.82 + 0.25 * t)
     if shape == "broadleaf_3":
         return max(0.08, sin(pi * min(t * 0.88 + 0.06, 1.0)) ** 0.34) * (1.16 - 0.28 * t)
+    if shape == "broadleaf_4":
+        # Säulenform (z. B. Pyramidenpappel): fast konstante Breite,
+        # oben und unten abgerundet.
+        return max(0.06, sin(pi * min(t * 0.72 + 0.14, 1.0)) ** 0.16)
+    if shape == "broadleaf_5":
+        # Trauerform (z. B. Trauerweide): breite Schulter oben,
+        # herabhängende Äste bis weit nach unten.
+        return max(0.10, (0.55 + 0.50 * t ** 0.7) * (1.0 - 0.55 * max(0.0, (t - 0.82) / 0.18) ** 2))
+    if shape == "broadleaf_6":
+        # Schirmform (z. B. Schirmakazie): unten schmal, oben flache
+        # ausladende Krone.
+        return max(0.04, (t ** 1.7) * (1.0 - 0.35 * max(0.0, (t - 0.92) / 0.08)))
     return max(0.04, sin(pi * t) ** 0.45)
 
 
@@ -89,7 +116,10 @@ def tree_crown_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tuple
         return []
     crown_height = min(max(obj.crown_height_m or obj.height_m * 0.65, 0.1), obj.height_m)
     crown_bottom = max(0.0, obj.height_m - crown_height)
-    ts = [i / 18.0 for i in range(0, 19)] if kind.crown_shape in {"conifer_1", "conifer_2", "conifer_3"} else [0.05, 0.14, 0.25, 0.38, 0.52, 0.66, 0.80, 0.92, 0.98]
+    # Formen mit feinen Details (Kegel, Schirme, Säulen, Trauerform) brauchen
+    # eine dichte Schichtung, sonst gehen die charakteristischen Kanten verloren.
+    dense = kind.crown_shape.startswith("conifer") or kind.crown_shape in {"broadleaf_4", "broadleaf_5", "broadleaf_6"}
+    ts = [i / 18.0 for i in range(0, 19)] if dense else [0.05, 0.14, 0.25, 0.38, 0.52, 0.66, 0.80, 0.92, 0.98]
     layers = []
     for t in ts:
         z = crown_bottom + crown_height * t
@@ -188,15 +218,26 @@ def object_body_layers_local_m(obj: ShadowObject) -> list[tuple[float, list[tupl
 
 
 def _project_shadow_layer(obj: ShadowObject, z: float, footprint: list[tuple[float, float]], away_x: float, away_y: float, tan_alt: float) -> list[tuple[float, float]]:
-    tilt_x, tilt_y = azimuth_vector(obj.orientation_deg)
     tilt = radians(obj.tilt_deg + obj.rotation_x_deg)
-    vertical = max(0.0, z * cos(tilt))
-    shadow_length = vertical / tan_alt
-    # Neigung reduziert nur die wirksame senkrechte Höhe. Die Bodenfläche des
-    # Körpers wird dadurch nicht seitlich aufgebläht.
-    shift_x = away_x * shadow_length
-    shift_y = away_y * shadow_length
-    return [(x + shift_x, y + shift_y) for x, y in footprint]
+    if abs(tilt) < 1e-9:
+        shadow_length = max(0.0, z) / tan_alt
+        return [(x + away_x * shadow_length, y + away_y * shadow_length) for x, y in footprint]
+    # Neigung als echte Starrkörper-Rotation um die Basis: Die Schicht behält
+    # ihre Fläche und wird mitsamt ihrer Höhe um die horizontale Achse quer
+    # zur Neigungsrichtung gedreht (statt sie nur zu stauchen).
+    dir_x, dir_y = azimuth_vector(obj.orientation_deg + obj.rotation_z_deg)
+    cos_t, sin_t = cos(tilt), sin(tilt)
+    result: list[tuple[float, float]] = []
+    for x, y in footprint:
+        along = x * dir_x + y * dir_y
+        perp_x, perp_y = x - along * dir_x, y - along * dir_y
+        along_rot = along * cos_t + z * sin_t
+        z_rot = max(0.0, z * cos_t - along * sin_t)
+        base_x = perp_x + along_rot * dir_x
+        base_y = perp_y + along_rot * dir_y
+        shadow_length = z_rot / tan_alt
+        result.append((base_x + away_x * shadow_length, base_y + away_y * shadow_length))
+    return result
 
 
 def _union_parts_to_polygons(parts: list[list[tuple[float, float]]]) -> list[list[tuple[float, float]]]:
