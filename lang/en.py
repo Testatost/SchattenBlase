@@ -56,6 +56,8 @@ MESSAGES = {
     "object.orientation": "Orientation (°)",
     "object.selected": "Selected object",
     "object.no_selection": "No selection",
+    "picker.broadleaf": "Broadleaf trees",
+    "picker.conifer": "Conifers",
     "tree.broadleaf_1": "Broadleaf 1",
     "tree.broadleaf_2": "Broadleaf 2",
     "tree.broadleaf_3": "Broadleaf 3",
